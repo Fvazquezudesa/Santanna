@@ -58,7 +58,7 @@ set matsize 10000
 global root "/Users/francomartinvazquez/Dropbox (Personal)/Procrear Santanna"
 global data "$root/DATA"
 global tables "$root/Procrear/tables"
-global figures "$root/Figures"
+global figures "$root/Procrear/figures"
 global temp "$root/TEMP"
 
 cap mkdir "$tables"
