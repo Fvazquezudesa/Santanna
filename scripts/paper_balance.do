@@ -272,26 +272,40 @@ di as text       "==============================================================
 
 use "$temp/cross_section_v2.dta", clear
 
-* --- 2a. Filter to viable sorteos --------------------------------------------
+* --- 2a. Build base viability mask + per-covariate variation flags ----------
+* Base filter: at least 50 obs in the cell, at least 5 winners and 5 losers.
+* This eliminates degenerate cells where the SE collapses or explodes.
 bys sorteo_fe: gen long _n_in_cell = _N
 bys sorteo_fe: egen long _n_winners = total(ganador == 1)
 gen long _n_losers = _n_in_cell - _n_winners
+gen byte _viable_base = (_n_in_cell >= 50 & _n_winners >= 5 & _n_losers >= 5)
 
-gen byte _viable = (_n_in_cell >= 30 & _n_winners >= 5 & _n_losers >= 5)
+* For each covariate, also require non-trivial within-cell variation.
+* This is critical for binary/limited covariates (pre_employed, pre_wage)
+* where many cells have all 1s (or all 0s for wage) and produce
+* artificial spikes near t = 0 in the histogram.
+bys sorteo_fe: egen double _sd_edad         = sd(edad)
+bys sorteo_fe: egen double _sd_mujer        = sd(mujer)
+bys sorteo_fe: egen long   _n_pre_emp_1     = total(pre_employed == 1)
+bys sorteo_fe: egen long   _n_pre_emp_0     = total(pre_employed == 0)
+bys sorteo_fe: egen long   _n_pre_wage_pos  = total(pre_wage > 0 & !missing(pre_wage))
+bys sorteo_fe: egen long   _n_pre_wage_zero = total(pre_wage == 0)
 
-quietly count if _viable
-local n_viable_obs = r(N)
-quietly tab sorteo_fe if _viable
-local n_viable_sorteos = r(r)
+gen byte _viable_edad         = _viable_base & _sd_edad         > 0.1
+gen byte _viable_mujer        = _viable_base & _sd_mujer        > 0
+gen byte _viable_pre_employed = _viable_base & _n_pre_emp_1 >= 15 & _n_pre_emp_0  >= 15
+gen byte _viable_pre_wage     = _viable_base & _n_pre_wage_pos >= 15 & _n_pre_wage_zero >= 15
 
-di as text _n "  Viable rows: " %12.0fc `n_viable_obs' " of " %12.0fc _N
-di as text   "  Viable sorteos: " %12.0fc `n_viable_sorteos'
-
-preserve
-keep if _viable
-drop _n_in_cell _n_winners _n_losers _viable
+foreach v in edad mujer pre_employed pre_wage {
+    quietly count if _viable_`v'
+    local n_v_obs = r(N)
+    quietly tab sorteo_fe if _viable_`v'
+    local n_v_srt = r(r)
+    di as text "  `v': " %12.0fc `n_v_obs' " obs, " %6.0fc `n_v_srt' " sorteos"
+}
 
 * --- 2b. Run statsby for each variable, merge results -----------------------
+* Each variable gets its own filtered subsample.
 tempfile orig
 save `orig'
 
@@ -300,6 +314,7 @@ foreach v in edad mujer pre_employed pre_wage {
     di as text _n "  statsby for: `v'"
 
     use `orig', clear
+    keep if _viable_`v'
 
     capture noisily statsby b_`v' = _b[ganador] se_`v' = _se[ganador], ///
         by(sorteo_fe) clear nodots: regress `v' ganador
@@ -314,7 +329,6 @@ foreach v in edad mujer pre_employed pre_wage {
     }
 }
 
-restore
 erase `orig'
 
 * --- 2c. Compute t-stats and trim degenerate cells --------------------------
@@ -331,61 +345,80 @@ foreach v in edad mujer pre_employed pre_wage {
     di as text "    `v': " %9.0fc r(N) " sorteos with finite t-stat"
 }
 
-* --- 2d. Plot 4-panel histogram ---------------------------------------------
-di as text _n "  Building 4-panel histogram..."
+* --- 2d. Plot 4-panel kernel density ----------------------------------------
+* We use kernel density (epanechnikov, default bandwidth) rather than a
+* histogram. With binary/limited covariates in small cells, t-statistics are
+* quantized at a few discrete values, which produces jagged histogram spikes.
+* KDE smooths over the quantization and gives a much cleaner comparison
+* against the N(0,1) reference density.
+di as text _n "  Building 4-panel kernel density plot..."
 
-local axis_min -5
-local axis_max 5
-local bin_w    0.25
+local axis_min -4
+local axis_max 4
+local y_max    0.5
+local y_step   0.1
 
-twoway (histogram t_edad, density width(`bin_w') start(`axis_min') ///
-            fcolor(gs12) lcolor(gs8)) ///
+* Trim t-stats to the histogram display range
+foreach v in edad mujer pre_employed pre_wage {
+    replace t_`v' = . if abs(t_`v') > `axis_max'
+}
+
+twoway (kdensity t_edad, kernel(epanechnikov) ///
+            lwidth(medthick) lcolor(navy) lpattern(solid) ///
+            n(400) range(`axis_min' `axis_max')) ///
        (function y = normalden(x), range(`axis_min' `axis_max') ///
             lwidth(medthick) lcolor(red) lpattern(dash)), ///
        xline(-1.96 1.96, lcolor(gs6) lpattern(dot)) ///
        xtitle("t-statistic", size(small)) ytitle("Density", size(small)) ///
        title("Age", size(small)) ///
        xlabel(`axis_min'(1)`axis_max', labsize(small)) ///
-       ylabel(, labsize(small)) ///
+       ylabel(0(`y_step')`y_max', labsize(small)) ///
+       yscale(range(0 `y_max')) ///
        legend(off) ///
        graphregion(color(white)) plotregion(color(white)) ///
        name(g_edad, replace)
 
-twoway (histogram t_mujer, density width(`bin_w') start(`axis_min') ///
-            fcolor(gs12) lcolor(gs8)) ///
+twoway (kdensity t_mujer, kernel(epanechnikov) ///
+            lwidth(medthick) lcolor(navy) lpattern(solid) ///
+            n(400) range(`axis_min' `axis_max')) ///
        (function y = normalden(x), range(`axis_min' `axis_max') ///
             lwidth(medthick) lcolor(red) lpattern(dash)), ///
        xline(-1.96 1.96, lcolor(gs6) lpattern(dot)) ///
        xtitle("t-statistic", size(small)) ytitle("Density", size(small)) ///
        title("Female", size(small)) ///
        xlabel(`axis_min'(1)`axis_max', labsize(small)) ///
-       ylabel(, labsize(small)) ///
+       ylabel(0(`y_step')`y_max', labsize(small)) ///
+       yscale(range(0 `y_max')) ///
        legend(off) ///
        graphregion(color(white)) plotregion(color(white)) ///
        name(g_mujer, replace)
 
-twoway (histogram t_pre_employed, density width(`bin_w') start(`axis_min') ///
-            fcolor(gs12) lcolor(gs8)) ///
+twoway (kdensity t_pre_employed, kernel(epanechnikov) ///
+            lwidth(medthick) lcolor(navy) lpattern(solid) ///
+            n(400) range(`axis_min' `axis_max')) ///
        (function y = normalden(x), range(`axis_min' `axis_max') ///
             lwidth(medthick) lcolor(red) lpattern(dash)), ///
        xline(-1.96 1.96, lcolor(gs6) lpattern(dot)) ///
        xtitle("t-statistic", size(small)) ytitle("Density", size(small)) ///
        title("Pre-treatment Employment", size(small)) ///
        xlabel(`axis_min'(1)`axis_max', labsize(small)) ///
-       ylabel(, labsize(small)) ///
+       ylabel(0(`y_step')`y_max', labsize(small)) ///
+       yscale(range(0 `y_max')) ///
        legend(off) ///
        graphregion(color(white)) plotregion(color(white)) ///
        name(g_pre_employed, replace)
 
-twoway (histogram t_pre_wage, density width(`bin_w') start(`axis_min') ///
-            fcolor(gs12) lcolor(gs8)) ///
+twoway (kdensity t_pre_wage, kernel(epanechnikov) ///
+            lwidth(medthick) lcolor(navy) lpattern(solid) ///
+            n(400) range(`axis_min' `axis_max')) ///
        (function y = normalden(x), range(`axis_min' `axis_max') ///
             lwidth(medthick) lcolor(red) lpattern(dash)), ///
        xline(-1.96 1.96, lcolor(gs6) lpattern(dot)) ///
        xtitle("t-statistic", size(small)) ytitle("Density", size(small)) ///
        title("Pre-treatment Wage", size(small)) ///
        xlabel(`axis_min'(1)`axis_max', labsize(small)) ///
-       ylabel(, labsize(small)) ///
+       ylabel(0(`y_step')`y_max', labsize(small)) ///
+       yscale(range(0 `y_max')) ///
        legend(off) ///
        graphregion(color(white)) plotregion(color(white)) ///
        name(g_pre_wage, replace)
@@ -433,6 +466,9 @@ di as text   "        Figures/balance_tstats_by_sorteo_fe.png"
 di as text _n(2) "==================================================================="
 di as text       "  STEP 3: Within-sorteo permutation test (B = `B_PERM')"
 di as text       "==================================================================="
+
+* Re-set seed so Step 3 is reproducible regardless of RNG consumption upstream
+set seed 20260406
 
 foreach v in edad mujer pre_employed pre_wage {
 
