@@ -81,13 +81,12 @@ set seed 20260406
 
 
 /*==============================================================================
-  STEP 0: REBUILD EDAD — edad_sorteo exacta
+  STEP 0: REBUILD COVARIATES FROM DATA_SORTEOS
 
-  Overwrites the `edad` variable from cross_section_v2.dta with an exact
-  age-at-sorteo calculation (month and day precision), with a CUIL-prefix
-  fallback for rows missing fnacimiento.
+  Overwrites `edad` and `mujer` in cross_section_v2.dta with cleaner
+  definitions sourced directly from Data_sorteos.dta.
 
-  Logic:
+  edad (exact age at sorteo date):
     1) Primary: edad = year(fecha_sorteo) - year(fnacimiento),
        minus 1 if the person has not yet had their birthday that year.
     2) Fallback: impute fnacimiento with the median of fnacimiento within the
@@ -96,12 +95,18 @@ set seed 20260406
          - char 3 in {0,1,2,3,4}  (plausible DNI first digit)
        Then recompute edad from the imputed fnacimiento.
 
-  The resulting `edad` replaces the one in cross_section_v2.dta and is
-  picked up automatically by STEPS 1-3 below.
+  mujer (gender indicator from Data_sorteos):
+    - mujer = 1 if Data_sorteos.mujer == 1
+    - mujer = 0 if Data_sorteos.mujer == 0
+    - mujer = . if Data_sorteos.mujer is missing (unknown)
+    (NOTE: supersedes the previous SIPA-firstnm + genero fallback logic.)
+
+  The resulting edad and mujer replace those in cross_section_v2.dta and
+  are picked up automatically by STEPS 1-3 below.
 ==============================================================================*/
 
 di as text _n(2) "==================================================================="
-di as text       "  STEP 0: Rebuild edad as edad_sorteo (exact)"
+di as text       "  STEP 0: Rebuild edad and mujer from Data_sorteos"
 di as text       "==================================================================="
 
 * --- 0a. Mapa prefijo CUIL (dígitos 3-5) → mediana fnacimiento ---------------
@@ -120,17 +125,18 @@ preserve
     save "$temp/_prefix_map.dta", replace
 restore
 
-* --- 0b. Mapa id_anon → (cuil, fnacimiento) (1:1 en Data_sorteos) -----------
+* --- 0b. Mapa id_anon → (cuil, fnacimiento, mujer) en Data_sorteos ----------
+*     firstnm para robustez ante multiples filas de un mismo id_anon.
 preserve
     use "$data/Data_sorteos.dta", clear
-    keep id_anon cuil fnacimiento
-    duplicates drop id_anon, force
+    collapse (firstnm) cuil fnacimiento mujer, by(id_anon)
     save "$temp/_person_birth.dta", replace
 restore
 
-* --- 0c. Cargar cross_section, dropear edad vieja, traer cuil+fnacimiento ---
+* --- 0c. Cargar cross_section, dropear edad/mujer viejas, traer nuevas ------
 use "$temp/cross_section_v2.dta", clear
 drop edad
+capture drop mujer
 merge m:1 id_anon using "$temp/_person_birth.dta", keep(master match) nogenerate
 
 * --- 0d. Adjuntar mediana de prefijo y flags de filtro -----------------------
@@ -160,7 +166,13 @@ replace edad = year(fecha_sorteo) - year(fnacimiento)                  ///
 
 label variable edad "Edad (anos) al dia del sorteo"
 
-* --- 0g. Cleanup y guardado ---------------------------------------------------
+* --- 0g. mujer: ya fue traida desde Data_sorteos en el merge de 0c ----------
+*     0 = varon, 1 = mujer, . = desconocido
+label variable mujer "Genero (1=mujer, 0=varon, .=desconocido) de Data_sorteos"
+label define mujer_lbl 0 "Varon" 1 "Mujer", replace
+label values mujer mujer_lbl
+
+* --- 0h. Cleanup y guardado ---------------------------------------------------
 drop _dni_prefix_str dni_prefix _d1 _d3 med_fnac cuil fnacimiento
 erase "$temp/_prefix_map.dta"
 erase "$temp/_person_birth.dta"
@@ -169,8 +181,11 @@ di as text _n "edad (redefinida) non-missing:"
 count if !missing(edad)
 di as text "  " r(N) " of " _N " (" %5.2f 100*r(N)/_N "%)"
 
+di as text _n "mujer (redefinida) distribution:"
+tab mujer, m
+
 save "$temp/cross_section_v2.dta", replace
-di as text _n "  done: cross_section_v2.dta overwritten with exact edad"
+di as text _n "  done: cross_section_v2.dta overwritten with exact edad + mujer"
 
 
 /*==============================================================================
