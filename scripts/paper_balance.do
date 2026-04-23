@@ -44,6 +44,7 @@
   OUTLINE
   ===========================================================================
 
+  STEP 0: Rebuild edad as edad_sorteo (exact age at sorteo date)
   STEP 1: Pooled balance table — reghdfe of each covariate on ganador
   STEP 2: By-sorteo balance histogram — t-stats from per-sorteo regressions
   STEP 3: Within-sorteo permutation test — Cullen-Jacob-Levitt (2006)
@@ -77,6 +78,99 @@ local B_PERM 1000
 
 * RNG seed for reproducibility
 set seed 20260406
+
+
+/*==============================================================================
+  STEP 0: REBUILD EDAD — edad_sorteo exacta
+
+  Overwrites the `edad` variable from cross_section_v2.dta with an exact
+  age-at-sorteo calculation (month and day precision), with a CUIL-prefix
+  fallback for rows missing fnacimiento.
+
+  Logic:
+    1) Primary: edad = year(fecha_sorteo) - year(fnacimiento),
+       minus 1 if the person has not yet had their birthday that year.
+    2) Fallback: impute fnacimiento with the median of fnacimiento within the
+       CUIL prefix group (chars 3-5), but only for CUILs where:
+         - char 1 != "3"   (excludes personas juridicas: 30/33/34)
+         - char 3 in {0,1,2,3,4}  (plausible DNI first digit)
+       Then recompute edad from the imputed fnacimiento.
+
+  The resulting `edad` replaces the one in cross_section_v2.dta and is
+  picked up automatically by STEPS 1-3 below.
+==============================================================================*/
+
+di as text _n(2) "==================================================================="
+di as text       "  STEP 0: Rebuild edad as edad_sorteo (exact)"
+di as text       "==================================================================="
+
+* --- 0a. Mapa prefijo CUIL (dígitos 3-5) → mediana fnacimiento ---------------
+preserve
+    use "$data/Data_sorteos.dta", clear
+    keep cuil fnacimiento
+    keep if !missing(fnacimiento) & cuil != ""
+    keep if substr(cuil, 1, 1) != "3"
+    gen str1 _d3 = substr(cuil, 3, 1)
+    keep if inlist(_d3, "0", "1", "2", "3", "4")
+    gen str3 _pfx_str = substr(cuil, 3, 3)
+    destring _pfx_str, gen(dni_prefix) force
+    keep if !missing(dni_prefix)
+    collapse (median) med_fnac = fnacimiento, by(dni_prefix)
+    format med_fnac %td
+    save "$temp/_prefix_map.dta", replace
+restore
+
+* --- 0b. Mapa id_anon → (cuil, fnacimiento) (1:1 en Data_sorteos) -----------
+preserve
+    use "$data/Data_sorteos.dta", clear
+    keep id_anon cuil fnacimiento
+    duplicates drop id_anon, force
+    save "$temp/_person_birth.dta", replace
+restore
+
+* --- 0c. Cargar cross_section, dropear edad vieja, traer cuil+fnacimiento ---
+use "$temp/cross_section_v2.dta", clear
+drop edad
+merge m:1 id_anon using "$temp/_person_birth.dta", keep(master match) nogenerate
+
+* --- 0d. Adjuntar mediana de prefijo y flags de filtro -----------------------
+gen str3 _dni_prefix_str = substr(cuil, 3, 3)
+destring _dni_prefix_str, gen(dni_prefix) force
+gen str1 _d1 = substr(cuil, 1, 1)
+gen str1 _d3 = substr(cuil, 3, 1)
+merge m:1 dni_prefix using "$temp/_prefix_map.dta", keep(master match) nogenerate
+
+* --- 0e. Primario: edad desde fnacimiento real -------------------------------
+gen int edad = year(fecha_sorteo) - year(fnacimiento)                  ///
+    - (month(fecha_sorteo) < month(fnacimiento) |                      ///
+       (month(fecha_sorteo) == month(fnacimiento) &                    ///
+        day(fecha_sorteo) < day(fnacimiento)))                         ///
+    if !missing(fnacimiento)
+
+* --- 0f. Fallback: imputar fnacimiento con filtros y recomputar --------------
+replace fnacimiento = med_fnac if                                      ///
+    missing(edad) & !missing(med_fnac) &                               ///
+    _d1 != "3" & inlist(_d3, "0", "1", "2", "3", "4")
+
+replace edad = year(fecha_sorteo) - year(fnacimiento)                  ///
+    - (month(fecha_sorteo) < month(fnacimiento) |                      ///
+       (month(fecha_sorteo) == month(fnacimiento) &                    ///
+        day(fecha_sorteo) < day(fnacimiento)))                         ///
+    if missing(edad) & !missing(fnacimiento)
+
+label variable edad "Edad (anos) al dia del sorteo"
+
+* --- 0g. Cleanup y guardado ---------------------------------------------------
+drop _dni_prefix_str dni_prefix _d1 _d3 med_fnac cuil fnacimiento
+erase "$temp/_prefix_map.dta"
+erase "$temp/_person_birth.dta"
+
+di as text _n "edad (redefinida) non-missing:"
+count if !missing(edad)
+di as text "  " r(N) " of " _N " (" %5.2f 100*r(N)/_N "%)"
+
+save "$temp/cross_section_v2.dta", replace
+di as text _n "  done: cross_section_v2.dta overwritten with exact edad"
 
 
 /*==============================================================================
@@ -255,57 +349,31 @@ di as text _n "  done: tables/balance_pooled.tex"
 
 
 /*==============================================================================
-  STEP 2: BY-SORTEO BALANCE HISTOGRAM
+  STEP 2: BY-SORTEO BALANCE FIGURE
 
   For each of {edad, mujer, pre_employed, pre_wage}, run a separate
   per-sorteo OLS regression of Y on ganador and collect the t-statistic.
-  Then plot a 4-panel histogram with N(0,1) overlay.
+  Then plot a 4-panel KDE with N(0,1) overlay.
 
-  Filter: keep sorteos with N>=30 AND winners>=5 AND losers>=5 to avoid
-  degenerate cells where the SE collapses to zero (which creates the
-  exploding t-stats seen in the unfiltered version of this figure).
+  NO FILTERING: every sorteo enters the figure. The only observations
+  dropped are those mathematically impossible to plot — cells where the
+  per-sorteo regression returns a missing or zero standard error
+  (e.g. no winners, no losers, or no within-cell variation in Y).
+  These cells have undefined or infinite t-statistics and cannot be
+  graphed.
+
+  This is the unfiltered version. Cells with very few observations or
+  little within-cell variation will produce noisy or extreme t-stats,
+  and that noise is exactly what the figure shows.
 ==============================================================================*/
 
 di as text _n(2) "==================================================================="
-di as text       "  STEP 2: By-sorteo balance histogram"
+di as text       "  STEP 2: By-sorteo balance figure (no filter)"
 di as text       "==================================================================="
 
 use "$temp/cross_section_v2.dta", clear
 
-* --- 2a. Build base viability mask + per-covariate variation flags ----------
-* Base filter: at least 50 obs in the cell, at least 5 winners and 5 losers.
-* This eliminates degenerate cells where the SE collapses or explodes.
-bys sorteo_fe: gen long _n_in_cell = _N
-bys sorteo_fe: egen long _n_winners = total(ganador == 1)
-gen long _n_losers = _n_in_cell - _n_winners
-gen byte _viable_base = (_n_in_cell >= 50 & _n_winners >= 5 & _n_losers >= 5)
-
-* For each covariate, also require non-trivial within-cell variation.
-* This is critical for binary/limited covariates (pre_employed, pre_wage)
-* where many cells have all 1s (or all 0s for wage) and produce
-* artificial spikes near t = 0 in the histogram.
-bys sorteo_fe: egen double _sd_edad         = sd(edad)
-bys sorteo_fe: egen double _sd_mujer        = sd(mujer)
-bys sorteo_fe: egen long   _n_pre_emp_1     = total(pre_employed == 1)
-bys sorteo_fe: egen long   _n_pre_emp_0     = total(pre_employed == 0)
-bys sorteo_fe: egen long   _n_pre_wage_pos  = total(pre_wage > 0 & !missing(pre_wage))
-bys sorteo_fe: egen long   _n_pre_wage_zero = total(pre_wage == 0)
-
-gen byte _viable_edad         = _viable_base & _sd_edad         > 0.1
-gen byte _viable_mujer        = _viable_base & _sd_mujer        > 0
-gen byte _viable_pre_employed = _viable_base & _n_pre_emp_1 >= 15 & _n_pre_emp_0  >= 15
-gen byte _viable_pre_wage     = _viable_base & _n_pre_wage_pos >= 15 & _n_pre_wage_zero >= 15
-
-foreach v in edad mujer pre_employed pre_wage {
-    quietly count if _viable_`v'
-    local n_v_obs = r(N)
-    quietly tab sorteo_fe if _viable_`v'
-    local n_v_srt = r(r)
-    di as text "  `v': " %12.0fc `n_v_obs' " obs, " %6.0fc `n_v_srt' " sorteos"
-}
-
-* --- 2b. Run statsby for each variable, merge results -----------------------
-* Each variable gets its own filtered subsample.
+* --- 2a. Run statsby for each variable on the full sample -------------------
 tempfile orig
 save `orig'
 
@@ -314,7 +382,6 @@ foreach v in edad mujer pre_employed pre_wage {
     di as text _n "  statsby for: `v'"
 
     use `orig', clear
-    keep if _viable_`v'
 
     capture noisily statsby b_`v' = _b[ganador] se_`v' = _se[ganador], ///
         by(sorteo_fe) clear nodots: regress `v' ganador
@@ -331,37 +398,40 @@ foreach v in edad mujer pre_employed pre_wage {
 
 erase `orig'
 
-* --- 2c. Compute t-stats and trim degenerate cells --------------------------
+* --- 2b. Compute t-stats (drop only mathematically undefined cases) ---------
 use "$temp/_balance_tstats.dta", clear
 
 foreach v in edad mujer pre_employed pre_wage {
     gen double t_`v' = b_`v' / se_`v'
+    * Drop only cells where the SE is missing or zero. These are
+    * mathematically undefined (no within-cell variation, all winners,
+    * or all losers) and cannot be plotted.
     replace t_`v' = . if missing(se_`v') | se_`v' == 0
-    * Trim to histogram display range; |t|>5 is uninformative for balance
-    * and would break the start(-5) histogram option below.
-    replace t_`v' = . if abs(t_`v') > 5
 
     quietly count if !missing(t_`v')
     di as text "    `v': " %9.0fc r(N) " sorteos with finite t-stat"
+    quietly sum t_`v', detail
+    di as text "         min = " %9.2f r(min) "  p1 = " %9.2f r(p1) ///
+              "  p99 = " %9.2f r(p99) "  max = " %9.2f r(max)
 }
 
-* --- 2d. Plot 4-panel kernel density ----------------------------------------
+* --- 2c. Plot 4-panel kernel density ----------------------------------------
 * We use kernel density (epanechnikov, default bandwidth) rather than a
 * histogram. With binary/limited covariates in small cells, t-statistics are
 * quantized at a few discrete values, which produces jagged histogram spikes.
 * KDE smooths over the quantization and gives a much cleaner comparison
 * against the N(0,1) reference density.
+*
+* Display range: ±10. Without filtering, very small cells can produce
+* extreme t-stats (well beyond ±4). The KDE is computed over [-10, 10],
+* and any cells outside that range are excluded from the kernel density
+* estimation only (the underlying t-stats themselves are kept in the data).
 di as text _n "  Building 4-panel kernel density plot..."
 
-local axis_min -4
-local axis_max 4
+local axis_min -10
+local axis_max 10
 local y_max    0.5
 local y_step   0.1
-
-* Trim t-stats to the histogram display range
-foreach v in edad mujer pre_employed pre_wage {
-    replace t_`v' = . if abs(t_`v') > `axis_max'
-}
 
 twoway (kdensity t_edad, kernel(epanechnikov) ///
             lwidth(medthick) lcolor(navy) lpattern(solid) ///
@@ -371,7 +441,7 @@ twoway (kdensity t_edad, kernel(epanechnikov) ///
        xline(-1.96 1.96, lcolor(gs6) lpattern(dot)) ///
        xtitle("t-statistic", size(small)) ytitle("Density", size(small)) ///
        title("Age", size(small)) ///
-       xlabel(`axis_min'(1)`axis_max', labsize(small)) ///
+       xlabel(`axis_min'(2)`axis_max', labsize(small)) ///
        ylabel(0(`y_step')`y_max', labsize(small)) ///
        yscale(range(0 `y_max')) ///
        legend(off) ///
@@ -386,7 +456,7 @@ twoway (kdensity t_mujer, kernel(epanechnikov) ///
        xline(-1.96 1.96, lcolor(gs6) lpattern(dot)) ///
        xtitle("t-statistic", size(small)) ytitle("Density", size(small)) ///
        title("Female", size(small)) ///
-       xlabel(`axis_min'(1)`axis_max', labsize(small)) ///
+       xlabel(`axis_min'(2)`axis_max', labsize(small)) ///
        ylabel(0(`y_step')`y_max', labsize(small)) ///
        yscale(range(0 `y_max')) ///
        legend(off) ///
@@ -401,7 +471,7 @@ twoway (kdensity t_pre_employed, kernel(epanechnikov) ///
        xline(-1.96 1.96, lcolor(gs6) lpattern(dot)) ///
        xtitle("t-statistic", size(small)) ytitle("Density", size(small)) ///
        title("Pre-treatment Employment", size(small)) ///
-       xlabel(`axis_min'(1)`axis_max', labsize(small)) ///
+       xlabel(`axis_min'(2)`axis_max', labsize(small)) ///
        ylabel(0(`y_step')`y_max', labsize(small)) ///
        yscale(range(0 `y_max')) ///
        legend(off) ///
@@ -416,7 +486,7 @@ twoway (kdensity t_pre_wage, kernel(epanechnikov) ///
        xline(-1.96 1.96, lcolor(gs6) lpattern(dot)) ///
        xtitle("t-statistic", size(small)) ytitle("Density", size(small)) ///
        title("Pre-treatment Wage", size(small)) ///
-       xlabel(`axis_min'(1)`axis_max', labsize(small)) ///
+       xlabel(`axis_min'(2)`axis_max', labsize(small)) ///
        ylabel(0(`y_step')`y_max', labsize(small)) ///
        yscale(range(0 `y_max')) ///
        legend(off) ///
