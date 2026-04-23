@@ -108,8 +108,9 @@ set seed 20260406
            .=desconocido)
     0.3  SIPA pre-tx : Data_SIPA.dta → _balance_sipa_pretreat.dta
          * filter to sample id_anon
-         * deseasonalize (jun/dec ÷ 1.5), deflate
-         * collapse (sum real_wage) by id_anon periodo_month
+         * deseasonalize: wage_desest = remuneracion - sac (exact)
+         * deflate to constant prices, collapse (sum real_wage)
+         * by id_anon periodo_month
     0.4  Merge       : sorteo × SIPA at periodo_month == sorteo_month
                        → cross_section_balance.dta
 ==============================================================================*/
@@ -261,11 +262,13 @@ gen periodo_month = ym(_y, _m)
 format periodo_month %tm
 drop _y _m
 
-* Aguinaldo deseasonalization (jun/dec ÷ 1.5)
-gen int cal_month = month(dofm(periodo_month))
+* Aguinaldo deseasonalization: restar el SAC (sueldo anual complementario)
+* Supersedes the prior jun/dec ÷ 1.5 heuristic. The `sac` column in SIPA
+* gives the exact SAC paid that month, so subtraction is cleaner than the
+* 1.5 divisor (which assumed exactly 50/50 split in jun/dec).
 gen double wage_desest = remuneracion
-replace wage_desest = remuneracion / 1.5 if inlist(cal_month, 6, 12)
-drop cal_month
+replace wage_desest = remuneracion - sac if !missing(sac)
+replace wage_desest = 0 if wage_desest < 0 & !missing(wage_desest)
 
 * Deflate to constant prices
 merge m:1 periodo_month using "$temp/_balance_deflator.dta", keep(master match) nogenerate
