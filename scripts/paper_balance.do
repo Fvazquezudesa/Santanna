@@ -24,8 +24,10 @@
        Reports the observed coefficient, the 2.5/97.5 percentiles of the
        permutation distribution, and the two-sided permutation p-value.
 
-  REQUIRES: $temp/cross_section_v2.dta from paper_labor_outcomes.do.
-  Run paper_labor_outcomes.do (Steps 1-4) first if not available.
+  SELF-CONTAINED: this script builds its own balance cross-section from
+  raw inputs (Data_sorteos.dta, Data_SIPA.dta, Inflacion_desde_Ene2007.dta)
+  and writes to $temp/cross_section_balance.dta. Does NOT depend on
+  paper_labor_outcomes.do or other pipelines.
 
   ===========================================================================
   OUTPUT → PAPER MAPPING
@@ -44,7 +46,11 @@
   OUTLINE
   ===========================================================================
 
-  STEP 0: Rebuild edad as edad_sorteo (exact age at sorteo date)
+  STEP 0: Build self-contained cross-section for balance
+          0.1  Deflator from Inflacion_desde_Ene2007.dta
+          0.2  Sorteo sample (edad exacta + mujer from Data_sorteos)
+          0.3  SIPA pre-treatment panel (filtered, deseasonalized, deflated)
+          0.4  Merge at sorteo_month → cross_section_balance.dta
   STEP 1: Pooled balance table — reghdfe of each covariate on ganador
   STEP 2: By-sorteo balance histogram — t-stats from per-sorteo regressions
   STEP 3: Within-sorteo permutation test — Cullen-Jacob-Levitt (2006)
@@ -81,37 +87,70 @@ set seed 20260406
 
 
 /*==============================================================================
-  STEP 0: REBUILD COVARIATES FROM DATA_SORTEOS
+  STEP 0: BUILD SELF-CONTAINED CROSS-SECTION FOR BALANCE
 
-  Overwrites `edad` and `mujer` in cross_section_v2.dta with cleaner
-  definitions sourced directly from Data_sorteos.dta.
+  Self-contained pipeline: produces $temp/cross_section_balance.dta with the
+  4 balance covariates (edad, mujer, pre_employed, pre_wage) plus keys
+  (id_anon, ganador, sorteo_fe, fecha_sorteo). Uses its own intermediate
+  files (prefixed _balance_) to avoid conflicts with other scripts that
+  also write cross_section_v2.dta or sipa_panel.dta.
 
-  edad (exact age at sorteo date):
-    1) Primary: edad = year(fecha_sorteo) - year(fnacimiento),
-       minus 1 if the person has not yet had their birthday that year.
-    2) Fallback: impute fnacimiento with the median of fnacimiento within the
-       CUIL prefix group (chars 3-5), but only for CUILs where:
-         - char 1 != "3"   (excludes personas juridicas: 30/33/34)
-         - char 3 in {0,1,2,3,4}  (plausible DNI first digit)
-       Then recompute edad from the imputed fnacimiento.
-
-  mujer (gender indicator from Data_sorteos):
-    - mujer = 1 if Data_sorteos.mujer == 1
-    - mujer = 0 if Data_sorteos.mujer == 0
-    - mujer = . if Data_sorteos.mujer is missing (unknown)
-    (NOTE: supersedes the previous SIPA-firstnm + genero fallback logic.)
-
-  The resulting edad and mujer replace those in cross_section_v2.dta and
-  are picked up automatically by STEPS 1-3 below.
+  Sub-steps:
+    0.1  Deflator    : Inflacion_desde_Ene2007.dta → _balance_deflator.dta
+    0.2  Sorteos     : Data_sorteos.dta → _balance_sorteo.dta
+         * sorteo_fe = group(fecha_sorteo tipo desarrollo tipologia cupo)
+         * drop tipo_grupo == 4 (Refacción) and degenerate sorteos (winrate
+           == 0 or == 1)
+         * edad: exact age at sorteo date from fnacimiento; fallback to
+           CUIL-prefix median fnacimiento (chars 3-5), only when char 1 != 3
+           and char 3 in {0..4}
+         * mujer: taken directly from Data_sorteos.mujer (1=mujer, 0=varon,
+           .=desconocido)
+    0.3  SIPA pre-tx : Data_SIPA.dta → _balance_sipa_pretreat.dta
+         * filter to sample id_anon
+         * deseasonalize (jun/dec ÷ 1.5), deflate
+         * collapse (sum real_wage) by id_anon periodo_month
+    0.4  Merge       : sorteo × SIPA at periodo_month == sorteo_month
+                       → cross_section_balance.dta
 ==============================================================================*/
 
 di as text _n(2) "==================================================================="
-di as text       "  STEP 0: Rebuild edad and mujer from Data_sorteos"
+di as text       "  STEP 0: Build self-contained cross-section for balance"
 di as text       "==================================================================="
 
-* --- 0a. Mapa prefijo CUIL (dígitos 3-5) → mediana fnacimiento ---------------
+
+/*----------------------------------------------------------------------------*/
+/*  0.1  DEFLATOR                                                              */
+/*----------------------------------------------------------------------------*/
+di as text _n "--- 0.1 Building deflator ---"
+
+use "$data/Inflacion_desde_Ene2007.dta", clear
+rename Periodo       periodo_month
+rename Inflacion     tasa_inflacion
+format periodo_month %tm
+sort periodo_month
+
+gen double ipc = 100 in 1
+replace ipc = ipc[_n-1] * (1 + tasa_inflacion / 100) in 2/L
+
+quietly sum ipc if _n == _N
+local ipc_base = r(mean)
+gen double deflator = ipc / `ipc_base'
+
+keep periodo_month deflator
+save "$temp/_balance_deflator.dta", replace
+di as text "    deflator saved (" _N " months)"
+
+
+/*----------------------------------------------------------------------------*/
+/*  0.2  SORTEO SAMPLE (edad exacta + mujer direct from Data_sorteos)          */
+/*----------------------------------------------------------------------------*/
+di as text _n "--- 0.2 Building sorteo sample ---"
+
+use "$data/Data_sorteos.dta", clear
+
+* --- CUIL-prefix → median fnacimiento map (filtered) ------------------------
 preserve
-    use "$data/Data_sorteos.dta", clear
     keep cuil fnacimiento
     keep if !missing(fnacimiento) & cuil != ""
     keep if substr(cuil, 1, 1) != "3"
@@ -122,38 +161,50 @@ preserve
     keep if !missing(dni_prefix)
     collapse (median) med_fnac = fnacimiento, by(dni_prefix)
     format med_fnac %td
-    save "$temp/_prefix_map.dta", replace
+    tempfile prefix_map
+    save `prefix_map'
 restore
 
-* --- 0b. Mapa id_anon → (cuil, fnacimiento, mujer) en Data_sorteos ----------
-*     firstnm para robustez ante multiples filas de un mismo id_anon.
-preserve
-    use "$data/Data_sorteos.dta", clear
-    collapse (firstnm) cuil fnacimiento mujer, by(id_anon)
-    save "$temp/_person_birth.dta", replace
-restore
+* --- Fill missings for FE grouping and construct sorteo_fe ------------------
+replace desarrollourbanistico = 0 if desarrollourbanistico == .
+replace tipologia             = 0 if tipologia == .
+replace cupo                  = 0 if cupo == .
+egen sorteo_fe = group(fecha_sorteo tipo desarrollourbanistico tipologia cupo)
 
-* --- 0c. Cargar cross_section, dropear edad/mujer viejas, traer nuevas ------
-use "$temp/cross_section_v2.dta", clear
-drop edad
-capture drop mujer
-merge m:1 id_anon using "$temp/_person_birth.dta", keep(master match) nogenerate
+* --- Credit type groups and drop Refacción ----------------------------------
+gen tipo_grupo = .
+replace tipo_grupo = 1 if tipo == 5
+replace tipo_grupo = 2 if inlist(tipo, 2, 3, 4)
+replace tipo_grupo = 3 if inlist(tipo, 6)
+replace tipo_grupo = 4 if inlist(tipo, 1, 8, 9, 10, 11, 12, 13)
+label define tipo_grupo_lbl 1 "DU" 2 "Construccion" 3 "Lotes" 4 "Refaccion", replace
+label values tipo_grupo tipo_grupo_lbl
 
-* --- 0d. Adjuntar mediana de prefijo y flags de filtro -----------------------
+drop if tipo_grupo == 4
+
+* --- Drop degenerate sorteos (winrate 0 or 1) -------------------------------
+bys sorteo_fe: egen _winrate = mean(ganador)
+drop if _winrate == 0 | _winrate == 1
+drop _winrate
+
+* --- Time variables ---------------------------------------------------------
+gen sorteo_month = mofd(fecha_sorteo)
+format sorteo_month %tm
+
+* --- edad: exact age at sorteo with CUIL-prefix fallback --------------------
+capture drop edad
 gen str3 _dni_prefix_str = substr(cuil, 3, 3)
 destring _dni_prefix_str, gen(dni_prefix) force
 gen str1 _d1 = substr(cuil, 1, 1)
 gen str1 _d3 = substr(cuil, 3, 1)
-merge m:1 dni_prefix using "$temp/_prefix_map.dta", keep(master match) nogenerate
+merge m:1 dni_prefix using `prefix_map', keep(master match) nogenerate
 
-* --- 0e. Primario: edad desde fnacimiento real -------------------------------
 gen int edad = year(fecha_sorteo) - year(fnacimiento)                  ///
     - (month(fecha_sorteo) < month(fnacimiento) |                      ///
        (month(fecha_sorteo) == month(fnacimiento) &                    ///
         day(fecha_sorteo) < day(fnacimiento)))                         ///
     if !missing(fnacimiento)
 
-* --- 0f. Fallback: imputar fnacimiento con filtros y recomputar --------------
 replace fnacimiento = med_fnac if                                      ///
     missing(edad) & !missing(med_fnac) &                               ///
     _d1 != "3" & inlist(_d3, "0", "1", "2", "3", "4")
@@ -166,26 +217,104 @@ replace edad = year(fecha_sorteo) - year(fnacimiento)                  ///
 
 label variable edad "Edad (anos) al dia del sorteo"
 
-* --- 0g. mujer: ya fue traida desde Data_sorteos en el merge de 0c ----------
-*     0 = varon, 1 = mujer, . = desconocido
+* --- mujer: directly from Data_sorteos.mujer --------------------------------
+*   1=mujer, 0=varon, .=desconocido (kept as-is).
 label variable mujer "Genero (1=mujer, 0=varon, .=desconocido) de Data_sorteos"
 label define mujer_lbl 0 "Varon" 1 "Mujer", replace
 label values mujer mujer_lbl
 
-* --- 0h. Cleanup y guardado ---------------------------------------------------
-drop _dni_prefix_str dni_prefix _d1 _d3 med_fnac cuil fnacimiento
-erase "$temp/_prefix_map.dta"
-erase "$temp/_person_birth.dta"
+* --- Keep only what balance needs downstream --------------------------------
+keep id_anon ganador sorteo_fe fecha_sorteo sorteo_month edad mujer
 
-di as text _n "edad (redefinida) non-missing:"
+di as text "    rows: " _N
+di as text "    edad non-missing:"
 count if !missing(edad)
-di as text "  " r(N) " of " _N " (" %5.2f 100*r(N)/_N "%)"
-
-di as text _n "mujer (redefinida) distribution:"
+di as text "      " r(N) " (" %5.2f 100*r(N)/_N "%)"
+di as text "    mujer distribution:"
 tab mujer, m
 
-save "$temp/cross_section_v2.dta", replace
-di as text _n "  done: cross_section_v2.dta overwritten with exact edad + mujer"
+drop _dni_prefix_str dni_prefix _d1 _d3 med_fnac
+
+save "$temp/_balance_sorteo.dta", replace
+
+
+/*----------------------------------------------------------------------------*/
+/*  0.3  SIPA PRE-TREATMENT PANEL                                              */
+/*----------------------------------------------------------------------------*/
+di as text _n "--- 0.3 Building SIPA pre-treatment panel ---"
+
+* Build id_anon list from sorteo sample (filter SIPA to these)
+preserve
+    use "$temp/_balance_sorteo.dta", clear
+    keep id_anon
+    duplicates drop
+    save "$temp/_balance_id_list.dta", replace
+restore
+
+use "$data/Data_SIPA.dta", clear
+
+merge m:1 id_anon using "$temp/_balance_id_list.dta", keep(match) nogenerate
+
+gen int _y = floor(mes / 100)
+gen int _m = mod(mes, 100)
+gen periodo_month = ym(_y, _m)
+format periodo_month %tm
+drop _y _m
+
+* Aguinaldo deseasonalization (jun/dec ÷ 1.5)
+gen int cal_month = month(dofm(periodo_month))
+gen double wage_desest = remuneracion
+replace wage_desest = remuneracion / 1.5 if inlist(cal_month, 6, 12)
+drop cal_month
+
+* Deflate to constant prices
+merge m:1 periodo_month using "$temp/_balance_deflator.dta", keep(master match) nogenerate
+gen double real_wage = wage_desest / deflator
+replace real_wage = 0 if wage_desest == .
+
+* Collapse to person-month (drop mujer from SIPA: we use Data_sorteos.mujer)
+di as text "    collapsing SIPA to person-month..."
+collapse (sum) pre_wage = real_wage, by(id_anon periodo_month)
+gen byte pre_employed = 1
+replace pre_employed = 0 if pre_wage == 0
+
+save "$temp/_balance_sipa_pretreat.dta", replace
+erase "$temp/_balance_id_list.dta"
+di as text "    SIPA panel rows: " _N
+
+
+/*----------------------------------------------------------------------------*/
+/*  0.4  MERGE AT sorteo_month → cross_section_balance.dta                    */
+/*----------------------------------------------------------------------------*/
+di as text _n "--- 0.4 Merging pre-treatment at sorteo_month ---"
+
+use "$temp/_balance_sorteo.dta", clear
+gen periodo_month = sorteo_month
+format periodo_month %tm
+
+merge m:1 id_anon periodo_month using "$temp/_balance_sipa_pretreat.dta", ///
+    keep(master match) nogenerate
+
+replace pre_wage     = 0 if missing(pre_wage)
+replace pre_employed = 0 if missing(pre_employed)
+
+drop periodo_month
+
+label variable pre_wage     "Salario real (ARS const.) en mes del sorteo (SIPA)"
+label variable pre_employed "Indicador: aparece en SIPA en mes del sorteo"
+
+di as text "    final rows: " _N
+di as text "    pre-treatment summary:"
+sum pre_employed pre_wage
+
+save "$temp/cross_section_balance.dta", replace
+
+* --- 0.5 Cleanup ------------------------------------------------------------
+erase "$temp/_balance_deflator.dta"
+erase "$temp/_balance_sorteo.dta"
+erase "$temp/_balance_sipa_pretreat.dta"
+
+di as text _n "  done: cross_section_balance.dta built from scratch"
 
 
 /*==============================================================================
@@ -204,14 +333,14 @@ di as text _n(2) "==============================================================
 di as text       "  STEP 1: Pooled balance table"
 di as text       "==================================================================="
 
-use "$temp/cross_section_v2.dta", clear
+use "$temp/cross_section_balance.dta", clear
 
 * Sanity check: required variables exist
 foreach v in edad mujer pre_employed pre_wage ganador sorteo_fe id_anon {
     capture confirm variable `v'
     if _rc {
-        di as error "Variable `v' not found in cross_section_v2.dta"
-        di as error "Re-run paper_labor_outcomes.do (Steps 1-4) to rebuild it."
+        di as error "Variable `v' not found in cross_section_balance.dta"
+        di as error "STEP 0 failed to produce the expected schema. Re-run STEP 0."
         exit 111
     }
 }
@@ -386,7 +515,7 @@ di as text _n(2) "==============================================================
 di as text       "  STEP 2: By-sorteo balance figure (no filter)"
 di as text       "==================================================================="
 
-use "$temp/cross_section_v2.dta", clear
+use "$temp/cross_section_balance.dta", clear
 
 * --- 2a. Run statsby for each variable on the full sample -------------------
 tempfile orig
@@ -559,7 +688,7 @@ foreach v in edad mujer pre_employed pre_wage {
 
     di as text _n(2) "  --- Permuting `v' ---"
 
-    use "$temp/cross_section_v2.dta", clear
+    use "$temp/cross_section_balance.dta", clear
 
     * Restrict to v-non-missing rows so per-sorteo winner counts are
     * correctly defined relative to the regression sample
