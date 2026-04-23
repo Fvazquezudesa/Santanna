@@ -234,7 +234,8 @@ di as text "      " r(N) " (" %5.2f 100*r(N)/_N "%)"
 di as text "    mujer distribution:"
 tab mujer, m
 
-drop _dni_prefix_str dni_prefix _d1 _d3 med_fnac
+* (auxiliares _dni_prefix_str, dni_prefix, _d1, _d3, med_fnac ya fueron
+*  dropeadas por el `keep` de arriba)
 
 save "$temp/_balance_sorteo.dta", replace
 
