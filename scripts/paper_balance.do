@@ -101,9 +101,9 @@ set seed 20260406
          * sorteo_fe = group(fecha_sorteo tipo desarrollo tipologia cupo)
          * drop tipo_grupo == 4 (Refacción) and degenerate sorteos (winrate
            == 0 or == 1)
-         * edad: exact age at sorteo date from fnacimiento; fallback to
-           CUIL-prefix median fnacimiento (chars 3-5), only when char 1 != 3
-           and char 3 in {0..4}
+         * edad: exact age at sorteo date from fnacimiento (no imputation).
+                 Rows with edad >= 66 are set to missing (outlier filter).
+                 Rows with missing fnacimiento remain missing edad.
          * mujer: taken directly from Data_sorteos.mujer (1=mujer, 0=varon,
            .=desconocido)
     0.3  SIPA pre-tx : Data_SIPA.dta → _balance_sipa_pretreat.dta
@@ -150,22 +150,6 @@ di as text _n "--- 0.2 Building sorteo sample ---"
 
 use "$data/Data_sorteos.dta", clear
 
-* --- CUIL-prefix → median fnacimiento map (filtered) ------------------------
-preserve
-    keep cuil fnacimiento
-    keep if !missing(fnacimiento) & cuil != ""
-    keep if substr(cuil, 1, 1) != "3"
-    gen str1 _d3 = substr(cuil, 3, 1)
-    keep if inlist(_d3, "0", "1", "2", "3", "4")
-    gen str3 _pfx_str = substr(cuil, 3, 3)
-    destring _pfx_str, gen(dni_prefix) force
-    keep if !missing(dni_prefix)
-    collapse (median) med_fnac = fnacimiento, by(dni_prefix)
-    format med_fnac %td
-    tempfile prefix_map
-    save `prefix_map'
-restore
-
 * --- Fill missings for FE grouping and construct sorteo_fe ------------------
 replace desarrollourbanistico = 0 if desarrollourbanistico == .
 replace tipologia             = 0 if tipologia == .
@@ -192,39 +176,22 @@ drop _winrate
 gen sorteo_month = mofd(fecha_sorteo)
 format sorteo_month %tm
 
-* --- edad: exact age at sorteo with CUIL-prefix fallback --------------------
+* --- edad: exact age at sorteo from fnacimiento (no imputation) ------------
+*     Sin fallback por CUIL-prefix: filas con fnacimiento missing quedan con
+*     edad=. y caen fuera de la regresion naturalmente.
 capture drop edad
-gen str3 _dni_prefix_str = substr(cuil, 3, 3)
-destring _dni_prefix_str, gen(dni_prefix) force
-gen str1 _d1 = substr(cuil, 1, 1)
-gen str1 _d3 = substr(cuil, 3, 1)
-merge m:1 dni_prefix using `prefix_map', keep(master match) nogenerate
-
 gen int edad = year(fecha_sorteo) - year(fnacimiento)                  ///
     - (month(fecha_sorteo) < month(fnacimiento) |                      ///
        (month(fecha_sorteo) == month(fnacimiento) &                    ///
         day(fecha_sorteo) < day(fnacimiento)))                         ///
     if !missing(fnacimiento)
 
-replace fnacimiento = med_fnac if                                      ///
-    missing(edad) & !missing(med_fnac) &                               ///
-    _d1 != "3" & inlist(_d3, "0", "1", "2", "3", "4")
+* --- Descartar edades >= 66 (outlier filter) --------------------------------
+count if edad >= 66 & !missing(edad)
+di as text "    edad >= 66 seteadas a missing: " r(N)
+replace edad = . if edad >= 66 & !missing(edad)
 
-replace edad = year(fecha_sorteo) - year(fnacimiento)                  ///
-    - (month(fecha_sorteo) < month(fnacimiento) |                      ///
-       (month(fecha_sorteo) == month(fnacimiento) &                    ///
-        day(fecha_sorteo) < day(fnacimiento)))                         ///
-    if missing(edad) & !missing(fnacimiento)
-
-* --- Descartar edades >= 90 (ruido por CUIL con fnacimiento muy antiguo) ----
-*     Despues de la imputacion por prefijo CUIL, algunas filas quedan con
-*     edad absurda (p.ej. 100+ anos). Las seteamos a missing para que queden
-*     fuera de la regresion de balance sin afectar el resto del pipeline.
-count if edad >= 90 & !missing(edad)
-di as text "    edad >= 90 seteadas a missing: " r(N)
-replace edad = . if edad >= 90 & !missing(edad)
-
-label variable edad "Edad (anos) al dia del sorteo (descarta edad>=90)"
+label variable edad "Edad (anos) al dia del sorteo (descarta edad>=66)"
 
 * --- mujer: directly from Data_sorteos.mujer --------------------------------
 *   1=mujer, 0=varon, .=desconocido (kept as-is).
@@ -242,8 +209,7 @@ di as text "      " r(N) " (" %5.2f 100*r(N)/_N "%)"
 di as text "    mujer distribution:"
 tab mujer, m
 
-* (auxiliares _dni_prefix_str, dni_prefix, _d1, _d3, med_fnac ya fueron
-*  dropeadas por el `keep` de arriba)
+* (sin auxiliares: la imputacion CUIL-prefix fue removida)
 
 save "$temp/_balance_sorteo.dta", replace
 
