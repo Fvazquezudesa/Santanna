@@ -216,7 +216,15 @@ replace edad = year(fecha_sorteo) - year(fnacimiento)                  ///
         day(fecha_sorteo) < day(fnacimiento)))                         ///
     if missing(edad) & !missing(fnacimiento)
 
-label variable edad "Edad (anos) al dia del sorteo"
+* --- Descartar edades >= 90 (ruido por CUIL con fnacimiento muy antiguo) ----
+*     Despues de la imputacion por prefijo CUIL, algunas filas quedan con
+*     edad absurda (p.ej. 100+ anos). Las seteamos a missing para que queden
+*     fuera de la regresion de balance sin afectar el resto del pipeline.
+count if edad >= 90 & !missing(edad)
+di as text "    edad >= 90 seteadas a missing: " r(N)
+replace edad = . if edad >= 90 & !missing(edad)
+
+label variable edad "Edad (anos) al dia del sorteo (descarta edad>=90)"
 
 * --- mujer: directly from Data_sorteos.mujer --------------------------------
 *   1=mujer, 0=varon, .=desconocido (kept as-is).
