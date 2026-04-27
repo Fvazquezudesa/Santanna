@@ -8,7 +8,11 @@
     - Path / filename del archivo SIPA (ver `sipa_file` abajo).
     - Columna de fecha llamada `mes` en formato YYYYMM como double
       (ya soportada por el código existente — `floor` y `mod` aceptan double).
-    - Si difieren los nombres de remuneracion/sac/mujer, ajustar los locals.
+    - Si difieren los nombres de remuneracion/mujer, ajustar los locals.
+
+  Aguinaldo: usamos el heuristico jun/dic / 1.5 (la base del ministerio no
+  trae columna SAC confiable). Esta variante difiere del approach de
+  paper_balance.do que sí usa `remuneracion - sac` exacto.
 
   Outputs del Ministerio variant van a `$output/tables_ministerio/` para no
   pisar las tablas oficiales del paper.
@@ -85,10 +89,6 @@ local fecha_var "mes"
 
 * Nombre de la columna de indicador femenino (0/1).
 local mujer_var "mujer"
-
-* Nombre de la columna del aguinaldo (SAC) — usada para deseasonalizar.
-* Si la base del ministerio NO tiene `sac`, dejar vacio: el script no descontara.
-local sac_var "sac"
 
 * --- Derived paths (do not edit) ---------------------------------------------
 * Tables en subcarpeta separada para no pisar las oficiales del paper.
@@ -271,29 +271,13 @@ gen periodo_month = ym(_y, _m)
 format periodo_month %tm
 drop _y _m
 
-* Deseasonalize aguinaldo. Si `sac_var' existe en la base, restamos directo:
-*    wage_desest = remuneracion - sac
-* Si NO existe (sac_var vacio o columna ausente), fallback al heuristico de
-* dividir por 1.5 en jun/dic.
+* Deseasonalize aguinaldo via heuristico jun/dic / 1.5
+* (la base del ministerio no trae columna `sac` confiable, asi que no
+* usamos el approach exacto de paper_balance.do)
+gen int cal_month = month(dofm(periodo_month))
 gen double wage_desest = `wage_var'
-local _use_sac = 0
-if "`sac_var'" != "" {
-    capture confirm variable `sac_var'
-    if !_rc {
-        local _use_sac = 1
-    }
-}
-if `_use_sac' == 1 {
-    di as text "  Aguinaldo: usando wage_desest = `wage_var' - `sac_var'"
-    replace wage_desest = `wage_var' - `sac_var' if !missing(`sac_var')
-    replace wage_desest = 0 if wage_desest < 0 & !missing(wage_desest)
-}
-else {
-    di as text "  Aguinaldo: fallback heuristico jun/dic / 1.5 (sin columna `sac_var')"
-    gen int cal_month = month(dofm(periodo_month))
-    replace wage_desest = `wage_var' / 1.5 if inlist(cal_month, 6, 12)
-    drop cal_month
-}
+replace wage_desest = `wage_var' / 1.5 if inlist(cal_month, 6, 12)
+drop cal_month
 
 * Deflate to constant prices
 merge m:1 periodo_month using "$temp/deflator.dta", keep(master match) nogenerate
@@ -668,7 +652,7 @@ esttab iv_wage_noctl iv_wage_imbctl iv_wage_ctl ///
                  "Age only" "All controls") ///
           fmt(%s %9.0fc %9.0fc %s %s)) ///
     postfoot(`"\hline\hline"' ///
-             `"\multicolumn{7}{p{0.95\textwidth}}{\scriptsize 2SLS. Instrument: ganador. Cols (1),(4): no controls. (2),(5): age only. (3),(6): all controls (add pre-employed, pre-wage). Wages: real, SAC-adjusted. Log Wage|Emp on employed subsample. SE clustered at person level. Sorteo FE absorbed.}\\"' ///
+             `"\multicolumn{7}{p{0.95\textwidth}}{\scriptsize 2SLS. Instrument: ganador. Cols (1),(4): no controls. (2),(5): age only. (3),(6): all controls (add pre-employed, pre-wage). Wages: real, aguinaldo-adjusted (jun/dic divided by 1.5). Log Wage|Emp on employed subsample. SE clustered at person level. Sorteo FE absorbed.}\\"' ///
              `"\multicolumn{7}{l}{\scriptsize \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}"' ///
              `"\end{tabular}"' ///
              `"\end{table}"') ///
