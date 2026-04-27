@@ -1,5 +1,5 @@
 /*==============================================================================
-  PROCREAR — Event-Study IV around fecha_sorteo
+  PROCREAR — Event-Study ITT around fecha_sorteo
 
   Objetivo:
     Estimar el efecto dinamico del credito PROCREAR sobre 3 outcomes:
@@ -7,8 +7,10 @@
       (2) wage           (nivel: salario real, deflactado, restado SAC)
       (3) log_wage       (log salario real condicional a employed=1)
 
-    Especificacion 2SLS, identificacion por loteria:
-      - receptor instrumentado por ganador
+    Especificacion ITT (intent-to-treat) por loteria:
+      - Tratamiento: ganador (asignacion aleatoria del sorteo)
+      - NO instrumentamos receptor: el IV solo identifica el LATE de
+        compliers, que es un subgrupo sesgado (full compliance no se da).
       - Person-sorteo FE absorbidos
       - Calendar-month FE absorbidos
       - SE clustered al nivel persona (id_anon)
@@ -28,9 +30,9 @@
     STEP 0: Self-contained build (deflator + sorteo cross-section + SIPA panel)
     STEP 1: Expansion person-sorteo × event-time [-24, +24]
     STEP 2: Merge SIPA wages al periodo_month correspondiente
-    STEP 3: Generar dummies event-time × {receptor, ganador}
-    STEP 4: Correr IV event-study x 3 outcomes
-    STEP 5: Plot 3 figuras estilo Cumberbatch / Hausman & Zussman
+    STEP 3: Generar dummies event-time × ganador (ITT)
+    STEP 4: Correr ITT event-study (reghdfe) x 3 outcomes
+    STEP 5: Plot 3 figuras estilo Hausman & Zussman
 ==============================================================================*/
 
 clear all
@@ -54,8 +56,8 @@ cap mkdir "$temp"
 * ssc install ivreghdfe, replace
 
 * --- CONFIG -------------------------------------------------------------------
-local TAU_MIN -24
-local TAU_MAX  24
+local TAU_MIN -6
+local TAU_MAX  6
 local TAU_REF  -1   // event-time omitido (referencia)
 
 
@@ -133,6 +135,7 @@ preserve
 restore
 
 use "$data/Data_SIPA.dta", clear
+drop if mes<201801
 merge m:1 id_anon using "$temp/_es_id_list.dta", keep(match) nogenerate
 erase "$temp/_es_id_list.dta"
 
@@ -217,39 +220,34 @@ di as text "      log_wage non-missing: " r(N) " (" %5.2f 100*r(N)/_N "%)"
 
 
 /*==============================================================================
-  STEP 3: GENERATE EVENT-TIME × TREATMENT DUMMIES
+  STEP 3: GENERATE EVENT-TIME × GANADOR DUMMIES (ITT)
 ==============================================================================*/
 
 di as text _n(2) "==================================================================="
-di as text       "  STEP 3: Event-time × {receptor, ganador} dummies"
+di as text       "  STEP 3: Event-time × ganador dummies"
 di as text       "==================================================================="
 
-* Naming: D_<idx>_R = (event_time == tau) × receptor   where idx = tau + 25 (1..49)
-* Idx for tau = -24, -23, ..., 24 -> 1, 2, ..., 49
-* Reference tau = -1 -> idx = 24 (NOT generated; serves as omitted category)
+* Naming: D<idx> = (event_time == tau) × ganador, idx = tau - TAU_MIN + 1 (1..49)
+* Reference tau = -1 -> idx omitido (no se genera)
 forvalues tau = `TAU_MIN'/`TAU_MAX' {
     if `tau' == `TAU_REF' continue
     local i = `tau' - `TAU_MIN' + 1
-    qui gen byte D`i'_R = (event_time == `tau') * receptor
-    qui gen byte D`i'_Z = (event_time == `tau') * ganador
+    qui gen byte D`i' = (event_time == `tau') * ganador
 }
 
-di as text "    Generated " (`TAU_MAX' - `TAU_MIN' + 1) - 1 " D_*_R + D_*_Z dummies"
+di as text "    Generated " (`TAU_MAX' - `TAU_MIN' + 1) - 1 " event-time × ganador dummies"
 
 * Person-sorteo FE
 egen long unit_id = group(id_anon sorteo_fe)
 
 
 /*==============================================================================
-  STEP 4: IV EVENT-STUDY (one regression per outcome)
+  STEP 4: ITT EVENT-STUDY (one reghdfe per outcome)
 ==============================================================================*/
 
 di as text _n(2) "==================================================================="
-di as text       "  STEP 4: IV event-study regressions"
+di as text       "  STEP 4: ITT event-study regressions"
 di as text       "==================================================================="
-
-* Helper: extract coefs from e(b)/e(V) into a postfile keyed by event_time
-* (called once per outcome)
 
 local outcomes "employed wage log_wage"
 
@@ -259,11 +257,11 @@ foreach y of local outcomes {
     qui count if !missing(`y')
     di as text "    Sample non-missing: " r(N)
 
-    * Run IV event-study
-    di as text "    Running ivreghdfe (this can take ~10-30 min)..."
+    * Run ITT event-study (reghdfe with FEs, no IV)
+    di as text "    Running reghdfe..."
     timer clear 1
     timer on 1
-    ivreghdfe `y' (D*_R = D*_Z), ///
+    reghdfe `y' D*, ///
         absorb(unit_id periodo_month) cluster(id_anon)
     timer off 1
     quietly timer list 1
@@ -286,8 +284,8 @@ foreach y of local outcomes {
         }
         else {
             local i = `tau' - `TAU_MIN' + 1
-            local b  = B[1, "D`i'_R"]
-            local se = sqrt(V["D`i'_R", "D`i'_R"])
+            local b  = B[1, "D`i'"]
+            local se = sqrt(V["D`i'", "D`i'"])
             local lo = `b' - 1.96 * `se'
             local hi = `b' + 1.96 * `se'
             post pf (`tau') (`b') (`se') (`lo') (`hi')
@@ -335,7 +333,7 @@ foreach y of local outcomes {
         legend(off) ///
         graphregion(color(white)) plotregion(color(white)) ///
         title("", size(medsmall)) ///
-        note("Reference month: t = `TAU_REF'. CIs at 95%.", size(vsmall))
+        note("ITT estimates. Reference month: t = `TAU_REF'. CIs at 95%.", size(vsmall))
 
     graph export "$figs/event_study_`y'.pdf", replace
     graph export "$figs/event_study_`y'.png", replace width(2400)
