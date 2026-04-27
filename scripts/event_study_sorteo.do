@@ -2,10 +2,8 @@
   PROCREAR — Event-Study ITT around fecha_sorteo
 
   Objetivo:
-    Estimar el efecto dinamico del credito PROCREAR sobre 3 outcomes:
-      (1) employed       (binario, 1 si tiene registro SIPA en periodo)
-      (2) wage           (nivel: salario real, deflactado, restado SAC)
-      (3) log_wage       (log salario real condicional a employed=1)
+    Estimar el efecto dinamico del credito PROCREAR sobre el empleo:
+      employed (binario, 1 si tiene registro SIPA en periodo)
 
     Especificacion ITT (intent-to-treat) por loteria:
       - Tratamiento: ganador (asignacion aleatoria del sorteo)
@@ -17,12 +15,11 @@
       - Reference month: t = -1 (omitido)
       - Event window: t in [-24, +24] meses respecto a fecha_sorteo
 
-  3 outputs:
+  Output:
     Procrear/figures/event_study_employed.pdf
-    Procrear/figures/event_study_wage.pdf
-    Procrear/figures/event_study_log_wage.pdf
-
-  Tablas con coeficientes en TEMP/_es_coefs_{employed,wage,log_wage}.dta
+    Procrear/figures/event_study_employed.png
+  Coeficientes:
+    TEMP/_es_coefs_employed.dta
 
   ===========================================================================
   OUTLINE
@@ -204,19 +201,11 @@ erase "$temp/_es_sipa_panel.dta"
 
 * employed = 1 if SIPA record exists, 0 otherwise
 gen byte employed = (sipa_match == 1)
-drop sipa_match
+drop sipa_match wage   // wage and log_wage no longer needed (employed-only run)
 
-* wage: 0 if not in SIPA (interpretacion: salario formal observado, 0 si no trabaja formalmente)
-replace wage = 0 if missing(wage)
-
-* log_wage: log si employed AND wage > 0
-gen double log_wage = ln(wage) if wage > 0
-
-di as text "    Cobertura outcomes:"
+di as text "    Cobertura outcome employed:"
 count if employed == 1
 di as text "      employed=1: " r(N) " (" %5.2f 100*r(N)/_N "%)"
-count if !missing(log_wage)
-di as text "      log_wage non-missing: " r(N) " (" %5.2f 100*r(N)/_N "%)"
 
 
 /*==============================================================================
@@ -249,7 +238,7 @@ di as text _n(2) "==============================================================
 di as text       "  STEP 4: ITT event-study regressions"
 di as text       "==================================================================="
 
-local outcomes "employed wage log_wage"
+local outcomes "employed"
 
 foreach y of local outcomes {
     di as text _n(2) "=== Outcome: `y' ==="
@@ -305,10 +294,8 @@ di as text       "  STEP 5: Plot event studies"
 di as text       "==================================================================="
 
 local titles_employed "Effect on employment indicator"
-local titles_wage     "Effect on monthly earnings (ARS const.)"
-local titles_log_wage "Effect on log monthly earnings"
 
-local outcomes "employed wage log_wage"
+local outcomes "employed"
 
 foreach y of local outcomes {
     use "$temp/_es_coefs_`y'.dta", clear
@@ -349,7 +336,6 @@ di as text       "  event_study_sorteo.do — Complete"
 di as text       "========================================"
 di as text _n "Outputs:"
 di as text   "  $figs/event_study_employed.pdf"
-di as text   "  $figs/event_study_wage.pdf"
-di as text   "  $figs/event_study_log_wage.pdf"
-di as text   "  $temp/_es_coefs_{employed,wage,log_wage}.dta (raw coefs)"
-di as text   "  $temp/_es_est_{employed,wage,log_wage}.ster (full estimates)"
+di as text   "  $figs/event_study_employed.png"
+di as text   "  $temp/_es_coefs_employed.dta (raw coefs)"
+di as text   "  $temp/_es_est_employed.ster (full estimates)"
