@@ -41,3 +41,39 @@ Esperando respuesta de Franco sobre:
 - **paper_balance.do, paper_labor_outcomes.do:** ya alineados con Data_sorteos
   como single source (mujer, edad_sorteo, deseasonalización via SAC). Tablas
   generadas la noche del 23-abr.
+
+
+## Update — Pasos 1 y 2 completados
+
+### Paso 1: lookup CP4 → (lat, lon, provincia)
+- **Fuente principal:** Geonames AR.txt (download.geonames.org/export/zip/AR.zip, CC-BY 4.0)
+  - 20,260 entries originales aggregadas a **1,976 CP4 únicos** vía centroide (mean lat/lon de localidades del mismo CP).
+  - 123 CPs con multi-provincia → resueltos por moda.
+  - Range Geonames: 1601–9431 (NO incluye CABA).
+- **Augmentación CABA:** Geonames no cubre 1000-1599. Agregué 600 CPs hardcoded en 6 buckets de 100s con centroide aproximado por barrio:
+  - 1000-1099: Centro/Microcentro (-34.610, -58.380)
+  - 1100-1199: Retiro/Recoleta (-34.591, -58.378)
+  - 1200-1299: Constitución/Barracas/La Boca (-34.626, -58.380)
+  - 1300-1399: Almagro/Boedo/Caballito (-34.610, -58.430)
+  - 1400-1499: Flores/Liniers (-34.625, -58.470)
+  - 1500-1599: Villa Devoto/CABA Oeste (-34.608, -58.510)
+  - Error intra-CABA ~3-5 km — aceptable para commute inter-provincia.
+- **Total lookup:** 2,576 CP4 distintos.
+- Output: `/tmp/_cp_lookup_full.csv`.
+
+### Paso 2: merge con zip.dta → zip_georef.dta
+- 2 merges m:1 sobre zip.dta (5.97M rows): primero por cpcuil, después por cpcuit.
+- 6 columnas nuevas: lat_residencia, lon_residencia, prov_residencia, lat_empleador, lon_empleador, prov_empleador.
+- **Cobertura:**
+  - lat_residencia non-missing: 5,734,638 (95.99%)
+  - lat_empleador non-missing:  5,871,298 (98.27%)
+  - Ambos disponibles:          5,640,745 (94.42%)
+- Output: `DATA/zip_georef.dta` (1.07 GB).
+
+### Caveats anotados
+1. CABA usa bucket centroides de 100 — error ~3-5 km intra-CABA. Importante para `lat_empleador` (28% de empleadores son CABA).
+2. ~4% de cpcuil + 1.7% de cpcuit no matchean (CPs raros, errores de digitación, o apartados de correo).
+3. 123 CPs con ambigüedad de provincia resuelta por moda.
+
+### Pendiente (Paso 3)
+Calcular distancia Haversine commute entre lat_residencia/lon_residencia y lat_empleador/lon_empleador. Esperando confirmación de Franco para proceder.
