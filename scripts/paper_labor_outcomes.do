@@ -13,7 +13,7 @@
     - Three control specifications per outcome:
         (1) No controls
         (2) Age only: edad
-        (3) Full controls: edad, pre-employment, pre-wage
+        (3) Full controls: edad, pre-employment, pre-wage, mujer
 
   ===========================================================================
   OUTPUT → PAPER MAPPING
@@ -329,7 +329,7 @@ foreach spec in "noctl" "imbctl" "ctl" {
         local mark_full ""
     }
     if "`spec'" == "ctl" {
-        local controls "edad pre_employed pre_wage"
+        local controls "edad pre_employed pre_wage mujer"
         local mark_imb "\checkmark"
         local mark_full "\checkmark"
     }
@@ -395,7 +395,7 @@ foreach spec in "noctl" "imbctl" "ctl" {
         local mark_full ""
     }
     if "`spec'" == "ctl" {
-        local controls "edad pre_employed pre_wage"
+        local controls "edad pre_employed pre_wage mujer"
         local mark_imb "\checkmark"
         local mark_full "\checkmark"
     }
@@ -440,7 +440,7 @@ esttab iv_emp_noctl iv_emp_imbctl iv_emp_ctl ///
                  "Age only" "All controls") ///
           fmt(%9.3f %9.1f %9.0fc %s %s)) ///
     postfoot(`"\hline\hline"' ///
-             `"\multicolumn{10}{p{0.95\textwidth}}{\scriptsize 2SLS. Instrument: ganador. Cols (1),(4),(7): no controls. (2),(5),(8): age only. (3),(6),(9): all controls (add pre-employed, pre-wage). SE clustered at person level. Sorteo FE absorbed.}\\"' ///
+             `"\multicolumn{10}{p{0.95\textwidth}}{\scriptsize 2SLS. Instrument: ganador. Cols (1),(4),(7): no controls. (2),(5),(8): age only. (3),(6),(9): all controls (add pre-employed, pre-wage, mujer). SE clustered at person level. Sorteo FE absorbed.}\\"' ///
              `"\multicolumn{10}{l}{\scriptsize \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}"' ///
              `"\end{tabular}"' ///
              `"\end{table}"') ///
@@ -470,7 +470,7 @@ foreach spec in "noctl" "imbctl" "ctl" {
         local mark_full ""
     }
     if "`spec'" == "ctl" {
-        local controls "edad pre_employed pre_wage"
+        local controls "edad pre_employed pre_wage mujer"
         local mark_imb "\checkmark"
         local mark_full "\checkmark"
     }
@@ -529,7 +529,7 @@ foreach spec in "noctl" "imbctl" "ctl" {
         local mark_full ""
     }
     if "`spec'" == "ctl" {
-        local controls "edad pre_employed pre_wage"
+        local controls "edad pre_employed pre_wage mujer"
         local mark_imb "\checkmark"
         local mark_full "\checkmark"
     }
@@ -575,7 +575,7 @@ esttab iv_wage_noctl iv_wage_imbctl iv_wage_ctl ///
                  "Age only" "All controls") ///
           fmt(%s %9.0fc %9.0fc %s %s)) ///
     postfoot(`"\hline\hline"' ///
-             `"\multicolumn{7}{p{0.95\textwidth}}{\scriptsize 2SLS. Instrument: ganador. Cols (1),(4): no controls. (2),(5): age only. (3),(6): all controls (add pre-employed, pre-wage). Wages: real, SAC-adjusted. Log Wage|Emp on employed subsample. SE clustered at person level. Sorteo FE absorbed.}\\"' ///
+             `"\multicolumn{7}{p{0.95\textwidth}}{\scriptsize 2SLS. Instrument: ganador. Cols (1),(4): no controls. (2),(5): age only. (3),(6): all controls (add pre-employed, pre-wage, mujer). Wages: real, SAC-adjusted. Log Wage|Emp on employed subsample. SE clustered at person level. Sorteo FE absorbed.}\\"' ///
              `"\multicolumn{7}{l}{\scriptsize \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}"' ///
              `"\end{tabular}"' ///
              `"\end{table}"') ///
@@ -615,7 +615,7 @@ foreach spec in "noctl" "imbctl" "ctl" {
         local mark_full ""
     }
     if "`spec'" == "ctl" {
-        local controls "edad pre_employed pre_wage"
+        local controls "edad pre_employed pre_wage mujer"
         local mark_imb "\checkmark"
         local mark_full "\checkmark"
     }
@@ -669,7 +669,7 @@ foreach spec in "noctl" "imbctl" "ctl" {
         local mark_full ""
     }
     if "`spec'" == "ctl" {
-        local controls "edad pre_employed pre_wage"
+        local controls "edad pre_employed pre_wage mujer"
         local mark_imb "\checkmark"
         local mark_full "\checkmark"
     }
@@ -701,7 +701,7 @@ esttab iv_2020_noctl iv_2020_imbctl iv_2020_ctl ///
                  "Age only" "All controls") ///
           fmt(%9.3f %9.1f %9.0fc %s %s)) ///
     postfoot(`"\hline\hline"' ///
-             `"\multicolumn{13}{p{0.95\textwidth}}{\tiny 2SLS. Instrument: ganador. Cols (1),(4),(7),(10): no controls. (2),(5),(8),(11): age only. (3),(6),(9),(12): all controls (add pre-employed, pre-wage). SE clustered at person level. Sorteo FE absorbed.}\\"' ///
+             `"\multicolumn{13}{p{0.95\textwidth}}{\tiny 2SLS. Instrument: ganador. Cols (1),(4),(7),(10): no controls. (2),(5),(8),(11): age only. (3),(6),(9),(12): all controls (add pre-employed, pre-wage, mujer). SE clustered at person level. Sorteo FE absorbed.}\\"' ///
              `"\multicolumn{13}{l}{\tiny \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}"' ///
              `"\end{tabular}"' ///
              `"\end{table}"') ///
@@ -728,7 +728,7 @@ foreach spec in "noctl" "imbctl" "ctl" {
         local mark_full ""
     }
     if "`spec'" == "ctl" {
-        local controls "edad pre_employed pre_wage"
+        local controls "edad pre_employed pre_wage mujer"
         local mark_imb "\checkmark"
         local mark_full "\checkmark"
     }
@@ -770,7 +770,7 @@ esttab iv_w_2020_noctl iv_w_2020_imbctl iv_w_2020_ctl ///
                  "Age only" "All controls") ///
           fmt(%12.0f %9.1f %9.0fc %s %s)) ///
     postfoot(`"\hline\hline"' ///
-             `"\multicolumn{13}{p{0.95\textwidth}}{\tiny 2SLS. Instrument: ganador. Cols (1),(4),(7),(10): no controls. (2),(5),(8),(11): age only. (3),(6),(9),(12): all controls (add pre-employed, pre-wage). Wages: real, SAC-adjusted. SE clustered at person level. Sorteo FE absorbed.}\\"' ///
+             `"\multicolumn{13}{p{0.95\textwidth}}{\tiny 2SLS. Instrument: ganador. Cols (1),(4),(7),(10): no controls. (2),(5),(8),(11): age only. (3),(6),(9),(12): all controls (add pre-employed, pre-wage, mujer). Wages: real, SAC-adjusted. SE clustered at person level. Sorteo FE absorbed.}\\"' ///
              `"\multicolumn{13}{l}{\tiny \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}"' ///
              `"\end{tabular}"' ///
              `"\end{table}"') ///
@@ -817,7 +817,7 @@ forvalues g = 1/3 {
             local mark_full ""
         }
         if "`spec'" == "ctl" {
-            local controls "edad pre_employed pre_wage"
+            local controls "edad pre_employed pre_wage mujer"
             local mark_imb "\checkmark"
             local mark_full "\checkmark"
         }
@@ -883,7 +883,7 @@ forvalues g = 1/3 {
             local mark_full ""
         }
         if "`spec'" == "ctl" {
-            local controls "edad pre_employed pre_wage"
+            local controls "edad pre_employed pre_wage mujer"
             local mark_imb "\checkmark"
             local mark_full "\checkmark"
         }
@@ -928,7 +928,7 @@ forvalues g = 1/3 {
                      "Age only" "All controls") ///
               fmt(%9.3f %9.1f %9.0fc %s %s)) ///
         postfoot(`"\hline\hline"' ///
-                 `"\multicolumn{10}{p{0.95\textwidth}}{\scriptsize 2SLS. Instrument: ganador. Cols (1),(4),(7): no controls. (2),(5),(8): age only. (3),(6),(9): all controls (add pre-employed, pre-wage). SE clustered at person level. Sorteo FE absorbed.}\\"' ///
+                 `"\multicolumn{10}{p{0.95\textwidth}}{\scriptsize 2SLS. Instrument: ganador. Cols (1),(4),(7): no controls. (2),(5),(8): age only. (3),(6),(9): all controls (add pre-employed, pre-wage, mujer). SE clustered at person level. Sorteo FE absorbed.}\\"' ///
                  `"\multicolumn{10}{l}{\scriptsize \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}"' ///
                  `"\end{tabular}"' ///
                  `"\end{table}"') ///
@@ -953,7 +953,7 @@ forvalues g = 1/3 {
             local mark_full ""
         }
         if "`spec'" == "ctl" {
-            local controls "edad pre_employed pre_wage"
+            local controls "edad pre_employed pre_wage mujer"
             local mark_imb "\checkmark"
             local mark_full "\checkmark"
         }
@@ -1009,7 +1009,7 @@ forvalues g = 1/3 {
             local mark_full ""
         }
         if "`spec'" == "ctl" {
-            local controls "edad pre_employed pre_wage"
+            local controls "edad pre_employed pre_wage mujer"
             local mark_imb "\checkmark"
             local mark_full "\checkmark"
         }
@@ -1046,7 +1046,7 @@ forvalues g = 1/3 {
                      "Age only" "All controls") ///
               fmt(%9.3f %9.1f %9.0fc %s %s)) ///
         postfoot(`"\hline\hline"' ///
-                 `"\multicolumn{7}{p{0.95\textwidth}}{\scriptsize 2SLS. Instrument: ganador. Cols (1),(4): no controls. (2),(5): age only. (3),(6): all controls (add pre-employed, pre-wage). Wages: real, SAC-adjusted. SE clustered at person level. Sorteo FE absorbed.}\\"' ///
+                 `"\multicolumn{7}{p{0.95\textwidth}}{\scriptsize 2SLS. Instrument: ganador. Cols (1),(4): no controls. (2),(5): age only. (3),(6): all controls (add pre-employed, pre-wage, mujer). Wages: real, SAC-adjusted. SE clustered at person level. Sorteo FE absorbed.}\\"' ///
                  `"\multicolumn{7}{l}{\scriptsize \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}"' ///
                  `"\end{tabular}"' ///
                  `"\end{table}"') ///
@@ -1089,7 +1089,7 @@ foreach spec in "noctl" "imbctl" "ctl" {
         local mark_full ""
     }
     if "`spec'" == "ctl" {
-        local controls "edad pre_employed pre_wage"
+        local controls "edad pre_employed pre_wage mujer"
         local mark_imb "\checkmark"
         local mark_full "\checkmark"
     }
@@ -1145,7 +1145,7 @@ foreach spec in "noctl" "imbctl" "ctl" {
         local mark_full ""
     }
     if "`spec'" == "ctl" {
-        local controls "edad pre_employed pre_wage"
+        local controls "edad pre_employed pre_wage mujer"
         local mark_imb "\checkmark"
         local mark_full "\checkmark"
     }
@@ -1180,7 +1180,7 @@ esttab iv_2020_noctl iv_2020_imbctl iv_2020_ctl ///
                  "Age only" "All controls") ///
           fmt(%9.3f %9.1f %9.0fc %s %s)) ///
     postfoot(`"\hline\hline"' ///
-             `"\multicolumn{13}{p{0.95\textwidth}}{\tiny 2SLS. Instrument: ganador. Cols (1),(4),(7),(10): no controls. (2),(5),(8),(11): age only. (3),(6),(9),(12): all controls (add pre-employed, pre-wage). SE clustered at person level. Sorteo FE absorbed.}\\"' ///
+             `"\multicolumn{13}{p{0.95\textwidth}}{\tiny 2SLS. Instrument: ganador. Cols (1),(4),(7),(10): no controls. (2),(5),(8),(11): age only. (3),(6),(9),(12): all controls (add pre-employed, pre-wage, mujer). SE clustered at person level. Sorteo FE absorbed.}\\"' ///
              `"\multicolumn{13}{l}{\tiny \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}"' ///
              `"\end{tabular}"' ///
              `"\end{table}"') ///
@@ -1208,7 +1208,7 @@ foreach spec in "noctl" "imbctl" "ctl" {
         local mark_full ""
     }
     if "`spec'" == "ctl" {
-        local controls "edad pre_employed pre_wage"
+        local controls "edad pre_employed pre_wage mujer"
         local mark_imb "\checkmark"
         local mark_full "\checkmark"
     }
@@ -1264,7 +1264,7 @@ foreach spec in "noctl" "imbctl" "ctl" {
         local mark_full ""
     }
     if "`spec'" == "ctl" {
-        local controls "edad pre_employed pre_wage"
+        local controls "edad pre_employed pre_wage mujer"
         local mark_imb "\checkmark"
         local mark_full "\checkmark"
     }
@@ -1299,7 +1299,7 @@ esttab iv_w_2020_noctl iv_w_2020_imbctl iv_w_2020_ctl ///
                  "Age only" "All controls") ///
           fmt(%9.3f %9.1f %9.0fc %s %s)) ///
     postfoot(`"\hline\hline"' ///
-             `"\multicolumn{13}{p{0.95\textwidth}}{\tiny 2SLS. Instrument: ganador. Cols (1),(4),(7),(10): no controls. (2),(5),(8),(11): age only. (3),(6),(9),(12): all controls (add pre-employed, pre-wage). Log Wage|Emp on employed subsample. SE clustered at person level. Sorteo FE absorbed.}\\"' ///
+             `"\multicolumn{13}{p{0.95\textwidth}}{\tiny 2SLS. Instrument: ganador. Cols (1),(4),(7),(10): no controls. (2),(5),(8),(11): age only. (3),(6),(9),(12): all controls (add pre-employed, pre-wage, mujer). Log Wage|Emp on employed subsample. SE clustered at person level. Sorteo FE absorbed.}\\"' ///
              `"\multicolumn{13}{l}{\tiny \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}"' ///
              `"\end{tabular}"' ///
              `"\end{table}"') ///
@@ -1321,7 +1321,7 @@ di as text _n "=== STEP 9: Compact heterogeneity table ===" _n
 
 use "$temp/cross_section_v2.dta", clear
 
-local controls "edad pre_employed pre_wage"
+local controls "edad pre_employed pre_wage mujer"
 
 capture file close fh
 file open fh using "$tables/table_het_compact.tex", write replace
@@ -1486,7 +1486,7 @@ foreach grp_name in "DU" "Construcci\'{o}n" "Lotes" {
 }
 
 file write fh "\hline\hline" _n
-file write fh "\multicolumn{5}{p{0.85\textwidth}}{\scriptsize IV/2SLS with full controls (edad, pre-employment, pre-wage). Instrument: \emph{ganador}. SE clustered at person level (in parentheses). Control means and N in brackets. Log Wage\textbar Emp estimated on employed subsample. Sorteo FE absorbed.}" _n
+file write fh "\multicolumn{5}{p{0.85\textwidth}}{\scriptsize IV/2SLS with full controls (edad, pre-employment, pre-wage, mujer). Instrument: \emph{ganador}. SE clustered at person level (in parentheses). Control means and N in brackets. Log Wage\textbar Emp estimated on employed subsample. Sorteo FE absorbed.}" _n
 file write fh "\multicolumn{5}{l}{\scriptsize \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}" _n
 file write fh "\end{tabular}" _n
 file write fh "\end{table}" _n
@@ -1510,7 +1510,7 @@ di as text _n "=== STEP 10: Credit type × cohort year (appendix) ===" _n
 
 use "$temp/cross_section_v2.dta", clear
 
-local controls "edad pre_employed pre_wage"
+local controls "edad pre_employed pre_wage mujer"
 
 capture file close fh
 file open fh using "$tables/table_het_type_year.tex", write replace
@@ -1604,7 +1604,7 @@ forvalues y = 2020/2023 {
 }
 
 file write fh "\hline\hline" _n
-file write fh "\multicolumn{7}{p{0.90\textwidth}}{\scriptsize IV/2SLS with full controls (edad, pre-employment, pre-wage). Instrument: \emph{ganador}. SE clustered at person level. Log Wage on employed subsample. Sorteo FE absorbed.}" _n
+file write fh "\multicolumn{7}{p{0.90\textwidth}}{\scriptsize IV/2SLS with full controls (edad, pre-employment, pre-wage, mujer). Instrument: \emph{ganador}. SE clustered at person level. Log Wage on employed subsample. Sorteo FE absorbed.}" _n
 file write fh "\multicolumn{7}{l}{\scriptsize \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}" _n
 file write fh "\end{tabular}" _n
 file write fh "\end{table}" _n
@@ -1623,7 +1623,7 @@ di as text       "  paper_labor_outcomes.do — Complete"
 di as text       "========================================"
 di as text _n "Specification: person × sorteo, reghdfe, cluster(id_anon)"
 di as text "sorteo_fe = group(fecha_sorteo, tipo, desarrollo, tipologia, cupo)"
-di as text "3 control specs: (1) none, (2) age only, (3) all controls (edad+pre-emp+pre-wage)"
+di as text "3 control specs: (1) none, (2) age only, (3) all controls (edad+pre-emp+pre-wage+mujer)"
 di as text _n "Tables saved to: $tables/"
 di as text _n "  PAPER TABLES (directly \\input'd):"
 di as text "    table_extensive.tex     — Section 5.1 (9 cols)"
