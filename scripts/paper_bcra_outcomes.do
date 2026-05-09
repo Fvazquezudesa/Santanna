@@ -12,8 +12,8 @@
     - SE clustered at the person level (id_anon)
     - Three control specifications per outcome:
         (1) No controls
-        (2) Imbalanced controls: gender, pre-employment
-        (3) Full controls: pre-wage, pre-employment, age, gender
+        (2) Age only: edad
+        (3) Full controls: edad, pre-employment, pre-wage
 
   SELF-CONTAINED: this script builds its own upstream artifacts (deflator,
   sorteo cross-section, SIPA person-month panel, BCRA entity-cost ranking)
@@ -547,12 +547,12 @@ foreach smp in "all" "nohipo" {
                 local mark_full ""
             }
             if "`spec'" == "imbctl" {
-                local controls "mujer pre_employed"
+                local controls "edad"
                 local mark_imb "\checkmark"
                 local mark_full ""
             }
             if "`spec'" == "ctl" {
-                local controls "pre_wage pre_employed edad mujer"
+                local controls "edad pre_employed pre_wage"
                 local mark_imb "\checkmark"
                 local mark_full "\checkmark"
             }
@@ -659,12 +659,12 @@ foreach smp in "all" "nohipo" {
                 local mark_full ""
             }
             if "`spec'" == "imbctl" {
-                local controls "mujer pre_employed"
+                local controls "edad"
                 local mark_imb "\checkmark"
                 local mark_full ""
             }
             if "`spec'" == "ctl" {
-                local controls "pre_wage pre_employed edad mujer"
+                local controls "edad pre_employed pre_wage"
                 local mark_imb "\checkmark"
                 local mark_full "\checkmark"
             }
@@ -690,10 +690,10 @@ foreach smp in "all" "nohipo" {
         prefoot(`"\hline"') ///
         stats(cmean fs_F N ctl_imb ctl_full, ///
               labels("Control mean" "First-stage F" "Observations" ///
-                     "Gender, pre-emp." "All controls") ///
+                     "Age only" "All controls") ///
               fmt(%9.3f %9.0fc %9.0fc %s %s)) ///
         postfoot(`"\hline\hline"' ///
-                 `"\multicolumn{7}{p{0.95\textwidth}}{\scriptsize 2SLS. Instrument: ganador.`smp_note' Cols (1),(4): no controls. (2),(5): gender and pre-employment. (3),(6): all controls (add pre-wage, age). SE clustered at person level. Sorteo FE absorbed.}\\"' ///
+                 `"\multicolumn{7}{p{0.95\textwidth}}{\scriptsize 2SLS. Instrument: ganador.`smp_note' Cols (1),(4): no controls. (2),(5): age only. (3),(6): all controls (add pre-employed, pre-wage). SE clustered at person level. Sorteo FE absorbed.}\\"' ///
                  `"\multicolumn{7}{l}{\scriptsize \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}"' ///
                  `"\end{tabular}"' ///
                  `"\end{table}"') ///
@@ -712,10 +712,10 @@ foreach smp in "all" "nohipo" {
         prefoot(`"\hline"') ///
         stats(cmean fs_F N ctl_imb ctl_full, ///
               labels("Control mean" "First-stage F" "Observations" ///
-                     "Gender, pre-emp." "All controls") ///
+                     "Age only" "All controls") ///
               fmt(%9.3f %9.0fc %9.0fc %s %s)) ///
         postfoot(`"\hline\hline"' ///
-                 `"\multicolumn{7}{p{0.95\textwidth}}{\scriptsize 2SLS. Instrument: ganador.`smp_note' Cols (1),(4): no controls. (2),(5): gender and pre-employment. (3),(6): all controls (add pre-wage, age). SE clustered at person level. Sorteo FE absorbed.}\\"' ///
+                 `"\multicolumn{7}{p{0.95\textwidth}}{\scriptsize 2SLS. Instrument: ganador.`smp_note' Cols (1),(4): no controls. (2),(5): age only. (3),(6): all controls (add pre-employed, pre-wage). SE clustered at person level. Sorteo FE absorbed.}\\"' ///
                  `"\multicolumn{7}{l}{\scriptsize \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}"' ///
                  `"\end{tabular}"' ///
                  `"\end{table}"') ///
@@ -735,10 +735,10 @@ foreach smp in "all" "nohipo" {
         prefoot(`"\hline"') ///
         stats(cmean fs_F N ctl_imb ctl_full, ///
               labels("Control mean" "First-stage F" "Observations" ///
-                     "Gender, pre-emp." "All controls") ///
+                     "Age only" "All controls") ///
               fmt(%9.3f %9.0fc %9.0fc %s %s)) ///
         postfoot(`"\hline\hline"' ///
-                 `"\multicolumn{10}{p{0.85\textwidth}}{\scriptsize 2SLS. Instrument: ganador.`smp_note' Cols (1),(4),(7): no controls. (2),(5),(8): gender and pre-employment. (3),(6),(9): all controls (add pre-wage, age). SE clustered at person level. Sorteo FE absorbed.}"' ///
+                 `"\multicolumn{10}{p{0.85\textwidth}}{\scriptsize 2SLS. Instrument: ganador.`smp_note' Cols (1),(4),(7): no controls. (2),(5),(8): age only. (3),(6),(9): all controls (add pre-employed, pre-wage). SE clustered at person level. Sorteo FE absorbed.}"' ///
                  `"\multicolumn{10}{l}{\scriptsize \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}"' ///
                  `"\end{tabular}"' ///
                  `"\end{table}"') ///
@@ -754,7 +754,7 @@ foreach smp in "all" "nohipo" {
   Rows    : DU / Construccion / Lotes (tipo_grupo 1-3)
   Columns : Total Debt | Max Sit. | Any Default | Entity Cost | Q4 Cost
                                                   (5 outcomes, no N Entities, no Active BCRA)
-  Method  : IV / 2SLS with full controls (pre_wage pre_employed edad mujer).
+  Method  : IV / 2SLS with full controls (edad pre_employed pre_wage).
             ALL entities sample (includes Banco Hipotecario).
 
   Output  : $tables/bcra_type_compact.tex  —  Appendix B companion to
@@ -765,7 +765,7 @@ di as text _n "=== STEP 6: Compact by-credit-type BCRA table ===" _n
 
 use "$temp/cross_section_bcra_v2.dta", clear
 
-local controls "pre_wage pre_employed edad mujer"
+local controls "edad pre_employed pre_wage"
 local outcomes "total_deuda max_situacion any_default costo_entidad in_q4_costo"
 
 capture file close fh
@@ -828,7 +828,7 @@ foreach grp_name in "Apartment Purchases (DU)" "House Construction" "Land Purcha
 }
 
 file write fh "\hline\hline" _n
-file write fh "\multicolumn{6}{p{0.95\textwidth}}{\scriptsize IV/2SLS with full controls (gender, pre-employment, pre-wage, age). Instrument: \emph{Winner}. SE clustered at person level (in parentheses). Control means and $N$ in brackets. BCRA credit registry, all entities (incl.\ Banco Hipotecario). Total Debt in ARS. Max Sit.: worst BCRA situation code (1=normal, 5=irrecoverable). Any Default: indicator for Max Sit.\ \(\geq 5\). Entity Cost: borrower's mean cost rank across entities. Q4 Cost: indicator for borrowing from a top-quartile-cost entity. Lottery-round FE absorbed.} \\" _n
+file write fh "\multicolumn{6}{p{0.95\textwidth}}{\scriptsize IV/2SLS with full controls (edad, pre-employment, pre-wage). Instrument: \emph{Winner}. SE clustered at person level (in parentheses). Control means and $N$ in brackets. BCRA credit registry, all entities (incl.\ Banco Hipotecario). Total Debt in ARS. Max Sit.: worst BCRA situation code (1=normal, 5=irrecoverable). Any Default: indicator for Max Sit.\ \(\geq 5\). Entity Cost: borrower's mean cost rank across entities. Q4 Cost: indicator for borrowing from a top-quartile-cost entity. Lottery-round FE absorbed.} \\" _n
 file write fh "\multicolumn{6}{l}{\scriptsize \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}" _n
 file write fh "\end{tabular}" _n
 file write fh "\end{table}" _n
