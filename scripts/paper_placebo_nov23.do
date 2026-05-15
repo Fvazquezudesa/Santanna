@@ -778,11 +778,11 @@ file write fh "\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}" _n
 file write fh "\caption{ITT Comparison Across Three Sorteos (Pooled)}" _n
 file write fh "\label{tab:placebo_itt_combined}" _n
 file write fh "\scriptsize" _n
-file write fh "\setlength{\tabcolsep}{4pt}" _n
-file write fh "\begin{tabular}{@{}lcccccc@{}}" _n
+file write fh "\setlength{\tabcolsep}{3pt}" _n
+file write fh "\begin{tabular}{@{}l c c @{\hspace{3em}} c c @{\hspace{3em}} c c@{}}" _n
 file write fh "\hline\hline" _n
 file write fh " & \multicolumn{2}{c}{Nov 23 (placebo)} & \multicolumn{2}{c}{Sep 26} & \multicolumn{2}{c}{Dec 4} \\" _n
-file write fh "\cline{2-3}\cline{4-5}\cline{6-7}" _n
+file write fh "\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}" _n
 file write fh " & (1) & (2) & (3) & (4) & (5) & (6) \\" _n
 file write fh "\hline" _n
 
@@ -873,7 +873,7 @@ file write fh " \\" _n
 file write fh "Controls for age & & \checkmark & & \checkmark & & \checkmark \\" _n
 
 file write fh "\hline\hline" _n
-file write fh "\multicolumn{7}{p{0.95\textwidth}}{\scriptsize OLS (ITT, reduced form). Three contemporaneous 2023 sorteos: Nov 23 (any tipo, credits never disbursed); Sep 26 (DU only, credits disbursed); Dec 4 (DU only, credits disbursed). Sorteo FE absorbed; SE clustered at person level (in parentheses). Panel B outcome: share of months employed in [fecha\_sorteo + `k_months', Dec 2025].}" _n
+file write fh "\multicolumn{7}{p{0.95\textwidth}}{\scriptsize OLS (ITT, reduced form). Three contemporaneous 2023 sorteos: Nov 23 (any tipo, credits never disbursed); Sep 26 (DU only, credits disbursed); Dec 4 (DU only, credits disbursed). Sorteo FE absorbed; SE clustered at person level (in parentheses). Panel B outcome: share of months employed in [fecha\_sorteo + `k_months', Dec 2025].} \\" _n
 file write fh "\multicolumn{7}{l}{\scriptsize \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}" _n
 file write fh "\end{tabular}" _n
 file write fh "\end{table}" _n
