@@ -778,8 +778,8 @@ file write fh "\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}" _n
 file write fh "\caption{ITT Comparison Across Three Sorteos (Pooled)}" _n
 file write fh "\label{tab:placebo_itt_combined}" _n
 file write fh "\scriptsize" _n
-file write fh "\setlength{\tabcolsep}{3pt}" _n
-file write fh "\begin{tabular}{@{}l c c @{\hspace{3em}} c c @{\hspace{3em}} c c@{}}" _n
+file write fh "\setlength{\tabcolsep}{2pt}" _n
+file write fh "\begin{tabular}{@{}l c c @{\hspace{1.2cm}} c c @{\hspace{1.2cm}} c c@{}}" _n
 file write fh "\hline\hline" _n
 file write fh " & \multicolumn{2}{c}{Nov 23 (placebo)} & \multicolumn{2}{c}{Sep 26} & \multicolumn{2}{c}{Dec 4} \\" _n
 file write fh "\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}" _n
