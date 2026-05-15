@@ -712,8 +712,7 @@ file write fh "\label{tab:placebo_fs_combined}" _n
 file write fh "\scriptsize" _n
 file write fh "\begin{tabular}{lccc}" _n
 file write fh "\hline\hline" _n
-file write fh " & Nov 23 & Sep 26 & Dec 4 \\" _n
-file write fh " & (placebo) & (DU) & (DU) \\" _n
+file write fh " & Nov 23 (placebo) & Sep 26 & Dec 4 \\" _n
 file write fh " & (1) & (2) & (3) \\" _n
 file write fh "\hline" _n
 
@@ -769,7 +768,8 @@ file close fh
 di as text "  placebo_fs_combined.tex saved"
 
 
-* --- Table 2: Combined ITT (3 cols × 2 outcomes × 2 specs) via file_write ---
+* --- Table 2: Combined ITT — 7 cols (paired by sorteo × {no ctl, age ctl}),
+*     controls indicated by a row, not by separate rows -------------------- *
 capture file close fh
 file open fh using "$tables/placebo_itt_combined.tex", write replace
 
@@ -778,129 +778,103 @@ file write fh "\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}" _n
 file write fh "\caption{ITT Comparison Across Three Sorteos (Pooled)}" _n
 file write fh "\label{tab:placebo_itt_combined}" _n
 file write fh "\scriptsize" _n
-file write fh "\setlength{\tabcolsep}{6pt}" _n
-file write fh "\begin{tabular}{@{}lccc@{}}" _n
+file write fh "\setlength{\tabcolsep}{4pt}" _n
+file write fh "\begin{tabular}{@{}lcccccc@{}}" _n
 file write fh "\hline\hline" _n
-file write fh " & Nov 23 & Sep 26 & Dec 4 \\" _n
-file write fh " & (placebo) & (DU) & (DU) \\" _n
-file write fh " & (1) & (2) & (3) \\" _n
+file write fh " & \multicolumn{2}{c}{Nov 23 (placebo)} & \multicolumn{2}{c}{Sep 26} & \multicolumn{2}{c}{Dec 4} \\" _n
+file write fh "\cline{2-3}\cline{4-5}\cline{6-7}" _n
+file write fh " & (1) & (2) & (3) & (4) & (5) & (6) \\" _n
 file write fh "\hline" _n
 
-* Helper macro for star function: write coef and SE rows for a given (outcome,spec)
-* Use a local macro list of placebos to iterate
 local plist "nov23 sep26_du dec4_du"
 
+* Helper: writes a single Ganador row (6 cols: alternating no ctl / age ctl
+* per sorteo). Outcome prefix is `oprefix' (= "emp" or "shr").
+* coefs come from `b_`oprefix'_n_`p'' and `b_`oprefix'_a_`p''.
+
 * --- Panel A: Formal Emp ---
-file write fh "\multicolumn{4}{l}{\textit{Panel A: Formal Emp}} \\" _n
+file write fh "\multicolumn{7}{l}{\textit{Panel A: Formal Emp}} \\" _n
 file write fh "\hline" _n
 
-* No controls
-file write fh "Ganador (no controls)"
+* coefficient row: 6 values
+file write fh "Ganador"
 foreach p of local plist {
-    local b : display %9.4f `b_emp_n_`p''
-    local t = abs(`b_emp_n_`p''/`se_emp_n_`p'')
-    if `t' > 2.576      local s "\sym{***}"
-    else if `t' > 1.960 local s "\sym{**}"
-    else if `t' > 1.645 local s "\sym{*}"
-    else                local s ""
-    file write fh " & `b'`s'"
+    foreach c in "n" "a" {
+        local b : display %9.4f `b_emp_`c'_`p''
+        local t = abs(`b_emp_`c'_`p''/`se_emp_`c'_`p'')
+        if `t' > 2.576      local s "\sym{***}"
+        else if `t' > 1.960 local s "\sym{**}"
+        else if `t' > 1.645 local s "\sym{*}"
+        else                local s ""
+        file write fh " & `b'`s'"
+    }
 }
 file write fh " \\" _n
 file write fh "    "
 foreach p of local plist {
-    local se : display %9.4f `se_emp_n_`p''
-    file write fh " & (`se')"
-}
-file write fh " \\[0.3em]" _n
-
-* Age control
-file write fh "Ganador (age control)"
-foreach p of local plist {
-    local b : display %9.4f `b_emp_a_`p''
-    local t = abs(`b_emp_a_`p''/`se_emp_a_`p'')
-    if `t' > 2.576      local s "\sym{***}"
-    else if `t' > 1.960 local s "\sym{**}"
-    else if `t' > 1.645 local s "\sym{*}"
-    else                local s ""
-    file write fh " & `b'`s'"
+    foreach c in "n" "a" {
+        local se : display %9.4f `se_emp_`c'_`p''
+        file write fh " & (`se')"
+    }
 }
 file write fh " \\" _n
-file write fh "    "
-foreach p of local plist {
-    local se : display %9.4f `se_emp_a_`p''
-    file write fh " & (`se')"
-}
-file write fh " \\" _n
-
 file write fh "\hline" _n
 
 * --- Panel B: Emp Share ---
-file write fh "\multicolumn{4}{l}{\textit{Panel B: Emp Share (`k_months'm+)}} \\" _n
+file write fh "\multicolumn{7}{l}{\textit{Panel B: Emp Share (`k_months'm+)}} \\" _n
 file write fh "\hline" _n
 
-file write fh "Ganador (no controls)"
+file write fh "Ganador"
 foreach p of local plist {
-    local b : display %9.4f `b_shr_n_`p''
-    local t = abs(`b_shr_n_`p''/`se_shr_n_`p'')
-    if `t' > 2.576      local s "\sym{***}"
-    else if `t' > 1.960 local s "\sym{**}"
-    else if `t' > 1.645 local s "\sym{*}"
-    else                local s ""
-    file write fh " & `b'`s'"
+    foreach c in "n" "a" {
+        local b : display %9.4f `b_shr_`c'_`p''
+        local t = abs(`b_shr_`c'_`p''/`se_shr_`c'_`p'')
+        if `t' > 2.576      local s "\sym{***}"
+        else if `t' > 1.960 local s "\sym{**}"
+        else if `t' > 1.645 local s "\sym{*}"
+        else                local s ""
+        file write fh " & `b'`s'"
+    }
 }
 file write fh " \\" _n
 file write fh "    "
 foreach p of local plist {
-    local se : display %9.4f `se_shr_n_`p''
-    file write fh " & (`se')"
-}
-file write fh " \\[0.3em]" _n
-
-file write fh "Ganador (age control)"
-foreach p of local plist {
-    local b : display %9.4f `b_shr_a_`p''
-    local t = abs(`b_shr_a_`p''/`se_shr_a_`p'')
-    if `t' > 2.576      local s "\sym{***}"
-    else if `t' > 1.960 local s "\sym{**}"
-    else if `t' > 1.645 local s "\sym{*}"
-    else                local s ""
-    file write fh " & `b'`s'"
+    foreach c in "n" "a" {
+        local se : display %9.4f `se_shr_`c'_`p''
+        file write fh " & (`se')"
+    }
 }
 file write fh " \\" _n
-file write fh "    "
-foreach p of local plist {
-    local se : display %9.4f `se_shr_a_`p''
-    file write fh " & (`se')"
-}
-file write fh " \\" _n
-
-* --- Diagnostics ---
 file write fh "\hline" _n
 
+* --- Diagnostics: control means + N use multicolumn{2} per sorteo -------- *
 file write fh "Control mean (Formal Emp)"
 foreach p of local plist {
     local cm : display %5.3f `cm_emp_`p''
-    file write fh " & `cm'"
+    file write fh " & \multicolumn{2}{c}{`cm'}"
 }
 file write fh " \\" _n
 
 file write fh "Control mean (Emp Share)"
 foreach p of local plist {
     local cm : display %5.3f `cm_shr_`p''
-    file write fh " & `cm'"
+    file write fh " & \multicolumn{2}{c}{`cm'}"
 }
 file write fh " \\" _n
 
 file write fh "Observations"
 foreach p of local plist {
     local n : display %12.0fc `N_`p''
-    file write fh " & `=strtrim("`n'")'"
+    file write fh " & \multicolumn{2}{c}{`=strtrim("`n'")'}"
 }
 file write fh " \\" _n
 
+* Controls-as-column-row (checkmark under even-indexed col per sorteo)
+file write fh "Controls for age & & \checkmark & & \checkmark & & \checkmark \\" _n
+
 file write fh "\hline\hline" _n
-file write fh "\multicolumn{4}{p{0.95\textwidth}}{\scriptsize OLS (ITT, reduced form). Three contemporaneous 2023 sorteos: Nov 23 (any tipo, credits never disbursed); Sep 26 (DU only, credits disbursed); Dec 4 (DU only, credits disbursed). Within each panel, the first row reports the ITT with no controls; the second adds \emph{edad}. Sorteo FE absorbed; SE clustered at person level (in parentheses). Panel B outcome: share of months employed in [fecha\_sorteo + `k_months', Dec 2025].}" _n
-file write fh "\multicolumn{4}{l}{\scriptsize \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}" _n
+file write fh "\multicolumn{7}{p{0.95\textwidth}}{\scriptsize OLS (ITT, reduced form). Three contemporaneous 2023 sorteos: Nov 23 (any tipo, credits never disbursed); Sep 26 (DU only, credits disbursed); Dec 4 (DU only, credits disbursed). Sorteo FE absorbed; SE clustered at person level (in parentheses). Panel B outcome: share of months employed in [fecha\_sorteo + `k_months', Dec 2025].}" _n
+file write fh "\multicolumn{7}{l}{\scriptsize \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}" _n
 file write fh "\end{tabular}" _n
 file write fh "\end{table}" _n
 
