@@ -710,7 +710,8 @@ file write fh "\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}" _n
 file write fh "\caption{First Stage Comparison Across Three Sorteos}" _n
 file write fh "\label{tab:placebo_fs_combined}" _n
 file write fh "\scriptsize" _n
-file write fh "\begin{tabular}{lccc}" _n
+file write fh "\setlength{\tabcolsep}{0pt}" _n
+file write fh "\begin{tabular}{@{}l*{3}{>{\centering\arraybackslash}p{0.20\textwidth}}@{}}" _n
 file write fh "\hline\hline" _n
 file write fh " & Nov 23 (placebo) & Sep 26 & Dec 4 \\" _n
 file write fh " & (1) & (2) & (3) \\" _n
@@ -759,9 +760,13 @@ file write fh "`cm_row' \\" _n
 file write fh "`F_row' \\" _n
 file write fh "`N_row' \\" _n
 file write fh "\hline\hline" _n
-file write fh "\multicolumn{4}{p{0.85\textwidth}}{\scriptsize OLS first stage. Outcome: \emph{receptor} (= 1 if applicant received PROCREAR credit). Three contemporaneous 2023 sorteos: Nov 23 (any tipo, credits never disbursed); Sep 26 (DU only); Dec 4 (DU only). The Nov 23 sorteo coefficient is mechanically 0 because no credits were disbursed. The other two should match the main-sample first stage of \(\approx\) 0.34. No additional controls; sorteo FE absorbed; SE clustered at person level.}\\" _n
-file write fh "\multicolumn{4}{l}{\scriptsize \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}" _n
 file write fh "\end{tabular}" _n
+file write fh "\par\smallskip" _n
+file write fh "\begin{minipage}{0.85\textwidth}" _n
+file write fh "\scriptsize" _n
+file write fh "OLS first stage. Outcome: \emph{receptor} (= 1 if applicant received PROCREAR credit). Three contemporaneous 2023 sorteos: Nov 23 (any tipo, credits never disbursed); Sep 26 (DU only); Dec 4 (DU only). The Nov 23 sorteo coefficient is mechanically 0 because no credits were disbursed. The other two should match the main-sample first stage of \(\approx\) 0.34. No additional controls; sorteo FE absorbed; SE clustered at person level.\\" _n
+file write fh "\sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)" _n
+file write fh "\end{minipage}" _n
 file write fh "\end{table}" _n
 file close fh
 
@@ -778,8 +783,8 @@ file write fh "\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}" _n
 file write fh "\caption{ITT Comparison Across Three Sorteos (Pooled)}" _n
 file write fh "\label{tab:placebo_itt_combined}" _n
 file write fh "\scriptsize" _n
-file write fh "\setlength{\tabcolsep}{2pt}" _n
-file write fh "\begin{tabular}{@{}l c c @{\hspace{1.2cm}} c c @{\hspace{1.2cm}} c c@{}}" _n
+file write fh "\setlength{\tabcolsep}{0pt}" _n
+file write fh "\begin{tabular*}{0.95\textwidth}{@{\extracolsep{\fill}}l*{6}{c}@{}}" _n
 file write fh "\hline\hline" _n
 file write fh " & \multicolumn{2}{c}{Nov 23 (placebo)} & \multicolumn{2}{c}{Sep 26} & \multicolumn{2}{c}{Dec 4} \\" _n
 file write fh "\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}" _n
@@ -873,9 +878,13 @@ file write fh " \\" _n
 file write fh "Controls for age & & \checkmark & & \checkmark & & \checkmark \\" _n
 
 file write fh "\hline\hline" _n
-file write fh "\multicolumn{7}{p{0.95\textwidth}}{\scriptsize OLS (ITT, reduced form). Three contemporaneous 2023 sorteos: Nov 23 (any tipo, credits never disbursed); Sep 26 (DU only, credits disbursed); Dec 4 (DU only, credits disbursed). Sorteo FE absorbed; SE clustered at person level (in parentheses). Panel B outcome: share of months employed in [fecha\_sorteo + `k_months', Dec 2025].} \\" _n
-file write fh "\multicolumn{7}{l}{\scriptsize \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}" _n
-file write fh "\end{tabular}" _n
+file write fh "\end{tabular*}" _n
+file write fh "\par\smallskip" _n
+file write fh "\begin{minipage}{0.95\textwidth}" _n
+file write fh "\scriptsize" _n
+file write fh "OLS (ITT, reduced form). Three contemporaneous 2023 sorteos: Nov 23 (any tipo, credits never disbursed); Sep 26 (DU only, credits disbursed); Dec 4 (DU only, credits disbursed). Sorteo FE absorbed; SE clustered at person level (in parentheses). Panel B outcome: share of months employed in [fecha\_sorteo + `k_months', Dec 2025].\\" _n
+file write fh "\sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)" _n
+file write fh "\end{minipage}" _n
 file write fh "\end{table}" _n
 
 file close fh

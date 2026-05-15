@@ -2,50 +2,50 @@
   PROCREAR — Paper Tables: Labor Market Outcomes
 
   THIS SCRIPT GENERATES THE OFFICIAL PAPER TABLES FOR LABOR OUTCOMES.
-  Do NOT run procrear_rq2.do after this — it overwrites table_extensive.tex
-  and table_intensive.tex with a different (incorrect) specification.
 
   Specification:
     - Unit of observation: person × sorteo inscription
     - Sorteo FE: group(fecha_sorteo, tipo, desarrollourbanistico, tipologia, cupo)
     - Treatment: ganador (ITT) / receptor instrumented by ganador (IV)
     - SE clustered at the person level (id_anon)
-    - Three control specifications per outcome:
+    - Three control specs per outcome (steps 5–8 main tables):
         (1) No controls
         (2) Age only: edad
         (3) Full controls: edad, pre-employment, pre-wage, mujer
+    - Wages are EXCLUDED from main pooled regressions (step 5); they appear
+      only in heterogeneity tables that condition on cohort/type (steps 6–8).
+    - Step 5c uses interaction IV with sorteo × mujer fixed effects.
 
   ===========================================================================
   OUTPUT → PAPER MAPPING
   ===========================================================================
 
-  Table file                        Paper location
+  Table file                        Paper section
   ─────────────────────────────────  ──────────────────────────────────────
-  table_extensive.tex                Section 5.1 (Table: Extensive Margin)
-  table_intensive.tex                Section 5.2 (Table: Intensive Margin)
-  table_het_employed.tex             Section 5.2 text (cohort decomposition)
-  table10_het_iv_wage.tex            Section 5.2 text (wage by cohort)
-  type_du_ext.tex                    Section 5.3 text (DU employment)
-  type_du_int.tex                    Section 5.3 text (DU wages)
-  type_construccion_ext.tex          Section 5.3 text (Construcción employment)
-  type_construccion_int.tex          Section 5.3 text (Construcción wages)
-  type_lotes_ext.tex                 Section 5.3 text (Lotes employment)
-  type_lotes_int.tex                 Section 5.3 text (Lotes wages)
-  type_du_het_year.tex               Section 5.2 text (DU by cohort year)
-  type_du_het_wage_year.tex          Section 5.2 text (DU wage by cohort year)
+  table_first_stage.tex              First stage: receptor on ganador (3 specs)
+  table_extensive.tex                Extensive margin (2 outcomes × 3 specs)
+  table_emp_share_<k>plus.tex        Post-k-month emp share (3 specs, IV)
+  table_het_gender.tex               Gender heterogeneity (interaction IV)
+  table_het_type.tex                 Heterogeneity by credit type (IV)
+  table_het_cohort.tex               Heterogeneity by cohort year (IV)
+  table_het_type_cohort.tex          Heterogeneity by type × cohort (IV)
 
   ===========================================================================
   OUTLINE
   ===========================================================================
 
-  STEP 1: Build monthly price deflator
-  STEP 2: Build sorteo-level analysis sample (person × sorteo)
-  STEP 3: Build SIPA person-month panel
-  STEP 4: Merge → cross-section with pre-treatment outcomes
-  STEP 5: Main tables — Extensive + Intensive margins (9 + 6 cols)
-  STEP 6: Heterogeneity by cohort — Employment + Wage (12 + 12 cols)
-  STEP 7: By credit type — Extensive + Intensive (3 groups × 2 tables)
-  STEP 8: DU heterogeneity by cohort year (12 + 12 cols)
+  STEP 1:  Build monthly price deflator
+  STEP 2:  Build sorteo-level analysis sample (person × sorteo)
+  STEP 3:  Build SIPA person-month panel
+  STEP 4:  Merge → cross-section with pre-treatment outcomes
+  STEP 4d: New outcome — emp_share_<k>plus (post-k-month employment share)
+  STEP 4e: First stage diagnostic — receptor on ganador (3 specs)
+  STEP 5:  Main table — Extensive margin (9 cols, 3 specs)
+  STEP 5b: Table — emp_share_<k>plus (3 specs, IV only)
+  STEP 5c: Gender heterogeneity — interaction IV with sorteo × mujer FE
+  STEP 6:  Heterogeneity by credit type — appendix (3 outcomes × 3 types × 2 specs)
+  STEP 7:  Heterogeneity by cohort year — appendix (3 outcomes × 4 cohorts × 2 specs)
+  STEP 8:  Heterogeneity by type × cohort — appendix (3 types × 2 outcomes × 4 cohorts × 2 specs)
 
 ==============================================================================*/
 
@@ -63,6 +63,14 @@ global temp "$root/TEMP"
 cap mkdir "$tables"
 cap mkdir "$figures"
 cap mkdir "$temp"
+
+* --- ANALYSIS PARAMETERS ------------------------------------------------------
+* Window offset (in months) for emp_share long-run outcome.
+* Outcome = share of months employed in [fecha_sorteo + k_months, Dec 2025].
+* Changing this value re-generates emp_share_<k>plus, table_emp_share_<k>plus.tex,
+* etc., automatically via macro interpolation. Reasonable values: 12, 18, 24, 36.
+local k_months = 18
+local k_label "`k_months'plus"
 
 * --- REQUIRED PACKAGES --------------------------------------------------------
 * ssc install estout, replace
@@ -136,8 +144,7 @@ label values tipo_grupo tipo_grupo_lbl
 
 * --- DROP REFACCION (tipo_grupo == 4) -----------------------------------------
 di as text _n "Dropping Refaccion (tipo_grupo == 4)..."
-count if tipo_grupo == 4
-drop if tipo_grupo == 4
+drop if tipo_grupo == 4 
 
 di as text _n "Credit type distribution:"
 tab tipo_grupo
@@ -182,6 +189,10 @@ save "$temp/sorteo_sample_v2.dta", replace
 
 
 use "$data/Data_SIPA.dta", clear
+
+* Drop pre-window months: not used anywhere downstream (earliest sorteo is Jul 2020,
+* so pre-treatment merges and the post-`k_months' window only need >= Jul 2020).
+drop if mes < 202007
 
 * Filter to persons in our sample
 preserve
@@ -298,39 +309,177 @@ erase "$temp/_pretreat_sipa.dta"
 
 
 /*==============================================================================
-  STEP 5: MAIN TABLES — EXTENSIVE + INTENSIVE MARGINS
+  STEP 4d: NEW OUTCOME — Share of months employed in [sorteo+k_months, Dec 2025]
 
-  Paper Section 5.1: table_extensive.tex  (9 cols: 3 outcomes × 3 specs)
-  Paper Section 5.2: table_intensive.tex  (6 cols: 2 outcomes × 3 specs)
+  For each (id_anon, sorteo_fe), compute the share of months in the window
+  [sorteo_month + `k_months', Dec 2025] where the person had positive-wage
+  SIPA employment. Outcome takes values in [0, 1].
+
+  k_months is set at the top of the script. Window length varies by cohort:
+  earlier sorteos have longer follow-up windows. Window_len is preserved as a
+  diagnostic. Sorteos for which window_len <= 0 get emp_share = missing.
 ==============================================================================*/
 
-di as text _n "=== STEP 5: Main tables (paper Tables: Extensive + Intensive) ===" _n
+di as text _n "=== STEP 4d: Computing emp_share_`k_label' (k_months=`k_months') ===" _n
+
+* --- Min plausible window_start: earliest sorteo (Ene 2020) + k_months ---
+local _min_win = ym(2020, 1) + `k_months'
+
+* --- Filter SIPA panel to relevant window range (employed + positive wage) ---
+use "$temp/sipa_panel.dta", clear
+keep if periodo_month >= `_min_win' & periodo_month <= ym(2025, 12)
+keep if employed == 1 & total_wage > 0
+keep id_anon periodo_month
+save "$temp/_sipa_`k_label'.dta", replace
+
+* --- Build unique (id_anon, sorteo_fe, sorteo_month) records ---
+use "$temp/cross_section_v2.dta", clear
+keep id_anon sorteo_fe sorteo_month
+duplicates drop
+save "$temp/_windows_`k_label'.dta", replace
+
+* --- joinby + in-window filter + collapse to count ---
+use "$temp/_windows_`k_label'.dta", clear
+joinby id_anon using "$temp/_sipa_`k_label'.dta"
+gen int window_start = sorteo_month + `k_months'
+keep if periodo_month >= window_start & periodo_month <= ym(2025, 12)
+gen byte _emp = 1
+collapse (sum) emp_months_`k_label' = _emp, by(id_anon sorteo_fe)
+save "$temp/_emp_count_`k_label'.dta", replace
+
+* --- Merge back, compute share, save ---
+use "$temp/cross_section_v2.dta", clear
+merge m:1 id_anon sorteo_fe using "$temp/_emp_count_`k_label'.dta", ///
+    keep(master match) nogenerate
+replace emp_months_`k_label' = 0 if emp_months_`k_label' == .
+
+gen int window_len = ym(2025, 12) - (sorteo_month + `k_months') + 1
+gen double emp_share_`k_label' = emp_months_`k_label' / window_len if window_len > 0
+label variable emp_share_`k_label' "Share of months employed in [sorteo+`k_months'm, Dec 2025]"
+label variable emp_months_`k_label' "Count of employed months in [sorteo+`k_months'm, Dec 2025]"
+label variable window_len "Post-`k_months'm window length (months)"
+
+di as text _n "=== emp_share_`k_label': descriptive stats ==="
+sum emp_share_`k_label' emp_months_`k_label' window_len
+
+save "$temp/cross_section_v2.dta", replace
+cap erase "$temp/_emp_count_`k_label'.dta"
+cap erase "$temp/_sipa_`k_label'.dta"
+cap erase "$temp/_windows_`k_label'.dta"
+
+
+/*==============================================================================
+  STEP 4e: FIRST STAGE — receptor on ganador
+
+  Pre-analysis diagnostic. Regress credit take-up (receptor) on lottery
+  outcome (ganador) with sorteo FE and clustered SEs. 3 specs (no controls,
+  age only, full controls). F-stat is the standard weak-instrument F.
+
+  Output: table_first_stage.tex
+==============================================================================*/
+
+di as text _n "=== STEP 4e: First stage (receptor on ganador) ===" _n
+
+use "$temp/cross_section_v2.dta", clear
+
+eststo clear
+
+foreach spec in "noctl" "agectl" "ctl" {
+    if "`spec'" == "noctl" {
+        local controls ""
+        local mark_age ""
+        local mark_full ""
+    }
+    if "`spec'" == "agectl" {
+        local controls "edad"
+        local mark_age "\checkmark"
+        local mark_full ""
+    }
+    if "`spec'" == "ctl" {
+        local controls "edad pre_employed pre_wage mujer"
+        local mark_age "\checkmark"
+        local mark_full "\checkmark"
+    }
+
+    eststo fs_`spec': reghdfe receptor ganador `controls', ///
+        absorb(sorteo_fe) cluster(id_anon)
+    quietly sum receptor if ganador == 0
+    estadd scalar cmean = r(mean)
+    test ganador
+    estadd scalar fs_F = r(F)
+    estadd local ctl_age "`mark_age'"
+    estadd local ctl_full "`mark_full'"
+}
+
+esttab fs_noctl fs_agectl fs_ctl ///
+       using "$tables/table_first_stage.tex", replace ///
+    keep(ganador) se(%9.4f) b(%9.4f) ///
+    star(* 0.10 ** 0.05 *** 0.01) ///
+    nonumbers nomtitles ///
+    coeflabels(ganador "Ganador") ///
+    prehead(`"\begin{table}[H]\centering"' ///
+            `"\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}"' ///
+            `"\caption{First Stage: Credit Take-up on Lottery Winning}"' ///
+            `"\label{tab:first_stage}"' ///
+            `"\scriptsize"' ///
+            `"\setlength{\tabcolsep}{0pt}"' ///
+            `"\begin{tabular}{@{}l*{3}{>{\centering\arraybackslash}p{0.17\textwidth}}@{}}"' ///
+            `"\hline\hline"' ///
+            `" & (1) & (2) & (3) \\"' ///
+            `"\hline"') ///
+    prefoot(`"\hline"') ///
+    stats(cmean fs_F N ctl_age ctl_full, ///
+          labels("Control mean (losers)" "F-statistic" "Observations" ///
+                 "Age only" "All controls") ///
+          fmt(%9.4f %9.1f %9.0fc %s %s)) ///
+    postfoot(`"\hline\hline"' ///
+             `"\end{tabular}"' ///
+             `"\par\smallskip"' ///
+             `"\begin{minipage}{0.85\textwidth}"' ///
+             `"\scriptsize"' ///
+             `"OLS. Outcome: \emph{receptor} (=1 if applicant received PROCREAR credit). Coefficient on \emph{ganador} is the take-up rate among winners minus among losers (compliance share). (1): no controls. (2): adds \emph{edad}. (3): adds \emph{edad, pre\_employed, pre\_wage, mujer}. SE clustered at person level (in parentheses). Sorteo FE absorbed. F-statistic tests H\(_0\): coefficient on \emph{ganador} = 0.\\"' ///
+             `"\sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)"' ///
+             `"\end{minipage}"' ///
+             `"\end{table}"') ///
+    substitute(\_ _) fragment
+
+di as text "  table_first_stage.tex saved"
+
+
+/*==============================================================================
+  STEP 5: MAIN TABLE — EXTENSIVE MARGIN
+
+  Paper Section 5.1: table_extensive.tex  (6 cols: 2 outcomes × 3 specs)
+  Intensive margin (wages) lives in heterogeneity steps (6, 7, 8) only.
+==============================================================================*/
+
+di as text _n "=== STEP 5: Main table (Extensive Margin) ===" _n
 
 use "$temp/cross_section_v2.dta", clear
 
 * ======================================================================
 * TABLE: EXTENSIVE MARGIN — paper Section 5.1
-* 9 columns: Formal Emp (3 specs) | Monotributo (3 specs) | Any Work (3 specs)
+* 6 columns: Formal Emp (3 specs) | Monotributo (3 specs)
 * Panel A: ITT, Panel B: IV/2SLS
 * ======================================================================
 
 * --- Panel A: ITT ---
 eststo clear
 
-foreach spec in "noctl" "imbctl" "ctl" {
+foreach spec in "noctl" "agectl" "ctl" {
     if "`spec'" == "noctl" {
         local controls ""
-        local mark_imb ""
+        local mark_age ""
         local mark_full ""
     }
-    if "`spec'" == "imbctl" {
+    if "`spec'" == "agectl" {
         local controls "edad"
-        local mark_imb "\checkmark"
+        local mark_age "\checkmark"
         local mark_full ""
     }
     if "`spec'" == "ctl" {
         local controls "edad pre_employed pre_wage mujer"
-        local mark_imb "\checkmark"
+        local mark_age "\checkmark"
         local mark_full "\checkmark"
     }
 
@@ -338,175 +487,33 @@ foreach spec in "noctl" "imbctl" "ctl" {
         absorb(sorteo_fe) cluster(id_anon)
     quietly sum employed if ganador == 0
     estadd scalar cmean = r(mean)
-    estadd local ctl_imb "`mark_imb'"
+    estadd local ctl_age "`mark_age'"
     estadd local ctl_full "`mark_full'"
 
     eststo itt_mono_`spec': reghdfe is_monotributo ganador `controls', ///
         absorb(sorteo_fe) cluster(id_anon)
     quietly sum is_monotributo if ganador == 0
     estadd scalar cmean = r(mean)
-    estadd local ctl_imb "`mark_imb'"
-    estadd local ctl_full "`mark_full'"
-
-    eststo itt_any_`spec': reghdfe any_work ganador `controls', ///
-        absorb(sorteo_fe) cluster(id_anon)
-    quietly sum any_work if ganador == 0
-    estadd scalar cmean = r(mean)
-    estadd local ctl_imb "`mark_imb'"
+    estadd local ctl_age "`mark_age'"
     estadd local ctl_full "`mark_full'"
 }
 
-esttab itt_emp_noctl itt_emp_imbctl itt_emp_ctl ///
-       itt_mono_noctl itt_mono_imbctl itt_mono_ctl ///
-       itt_any_noctl itt_any_imbctl itt_any_ctl ///
+esttab itt_emp_noctl itt_emp_agectl itt_emp_ctl ///
+       itt_mono_noctl itt_mono_agectl itt_mono_ctl ///
        using "$tables/table_extensive.tex", replace ///
     keep(ganador) se(%9.4f) b(%9.4f) ///
     star(* 0.10 ** 0.05 *** 0.01) ///
     nonumbers nomtitles noobs nor2 ///
     coeflabels(ganador "Ganador") ///
-    prehead(`"\begin{table}[htbp]\centering"' ///
+    prehead(`"\begin{table}[H]\centering"' ///
             `"\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}"' ///
             `"\caption{Extensive Margin: Employment Effects of PROCREAR Credit}"' ///
             `"\label{tab:extensive}"' ///
             `"\scriptsize"' ///
-            `"\setlength{\tabcolsep}{2pt}"' ///
-            `"\begin{tabular}{@{}l*{9}{c}@{}}"' ///
+            `"\setlength{\tabcolsep}{4pt}"' ///
+            `"\begin{tabular}{@{}l*{6}{c}@{}}"' ///
             `"\hline\hline"' ///
-            `" & \multicolumn{3}{c}{Formal Emp} & \multicolumn{3}{c}{Monotributo} & \multicolumn{3}{c}{Any Work} \\"' ///
-            `"\cline{2-4}\cline{5-7}\cline{8-10}"' ///
-            `" & (1) & (2) & (3) & (4) & (5) & (6) & (7) & (8) & (9) \\"' ///
-            `"\hline"' ///
-            `"\multicolumn{10}{l}{\textit{Panel A: ITT}} \\"') ///
-    postfoot(`"[1em]"') ///
-    substitute(\_ _) fragment
-
-* --- Panel B: IV ---
-eststo clear
-
-foreach spec in "noctl" "imbctl" "ctl" {
-    if "`spec'" == "noctl" {
-        local controls ""
-        local mark_imb ""
-        local mark_full ""
-    }
-    if "`spec'" == "imbctl" {
-        local controls "edad"
-        local mark_imb "\checkmark"
-        local mark_full ""
-    }
-    if "`spec'" == "ctl" {
-        local controls "edad pre_employed pre_wage mujer"
-        local mark_imb "\checkmark"
-        local mark_full "\checkmark"
-    }
-
-    eststo iv_emp_`spec': ivreghdfe employed `controls' ///
-        (receptor = ganador), absorb(sorteo_fe) cluster(id_anon)
-    quietly sum employed if ganador == 0
-    estadd scalar cmean = r(mean)
-    estadd scalar fs_F = e(widstat)
-    estadd local ctl_imb "`mark_imb'"
-    estadd local ctl_full "`mark_full'"
-
-    eststo iv_mono_`spec': ivreghdfe is_monotributo `controls' ///
-        (receptor = ganador), absorb(sorteo_fe) cluster(id_anon)
-    quietly sum is_monotributo if ganador == 0
-    estadd scalar cmean = r(mean)
-    estadd scalar fs_F = e(widstat)
-    estadd local ctl_imb "`mark_imb'"
-    estadd local ctl_full "`mark_full'"
-
-    eststo iv_any_`spec': ivreghdfe any_work `controls' ///
-        (receptor = ganador), absorb(sorteo_fe) cluster(id_anon)
-    quietly sum any_work if ganador == 0
-    estadd scalar cmean = r(mean)
-    estadd scalar fs_F = e(widstat)
-    estadd local ctl_imb "`mark_imb'"
-    estadd local ctl_full "`mark_full'"
-}
-
-esttab iv_emp_noctl iv_emp_imbctl iv_emp_ctl ///
-       iv_mono_noctl iv_mono_imbctl iv_mono_ctl ///
-       iv_any_noctl iv_any_imbctl iv_any_ctl ///
-       using "$tables/table_extensive.tex", append ///
-    keep(receptor) se(%9.4f) b(%9.4f) ///
-    star(* 0.10 ** 0.05 *** 0.01) ///
-    nonumbers nomtitles ///
-    coeflabels(receptor "Receptor") ///
-    prehead(`"\multicolumn{10}{l}{\textit{Panel B: IV / 2SLS}} \\"') ///
-    prefoot(`"\hline"') ///
-    stats(cmean fs_F N ctl_imb ctl_full, ///
-          labels("Control mean" "First-stage F" "Observations" ///
-                 "Age only" "All controls") ///
-          fmt(%9.3f %9.1f %9.0fc %s %s)) ///
-    postfoot(`"\hline\hline"' ///
-             `"\multicolumn{10}{p{0.95\textwidth}}{\scriptsize 2SLS. Instrument: ganador. Cols (1),(4),(7): no controls. (2),(5),(8): age only. (3),(6),(9): all controls (add pre-employed, pre-wage, mujer). SE clustered at person level. Sorteo FE absorbed.}\\"' ///
-             `"\multicolumn{10}{l}{\scriptsize \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}"' ///
-             `"\end{tabular}"' ///
-             `"\end{table}"') ///
-    substitute(\_ _) fragment
-
-di as text "  table_extensive.tex saved (paper Section 5.1)"
-
-
-* ======================================================================
-* TABLE: INTENSIVE MARGIN — paper Section 5.2
-* 6 columns: Wage levels (3 specs) | Log Wage|Emp (3 specs)
-* Panel A: ITT, Panel B: IV/2SLS
-* ======================================================================
-
-* --- Panel A: ITT ---
-eststo clear
-
-foreach spec in "noctl" "imbctl" "ctl" {
-    if "`spec'" == "noctl" {
-        local controls ""
-        local mark_imb ""
-        local mark_full ""
-    }
-    if "`spec'" == "imbctl" {
-        local controls "edad"
-        local mark_imb "\checkmark"
-        local mark_full ""
-    }
-    if "`spec'" == "ctl" {
-        local controls "edad pre_employed pre_wage mujer"
-        local mark_imb "\checkmark"
-        local mark_full "\checkmark"
-    }
-
-    eststo itt_wage_`spec': reghdfe total_wage ganador `controls', ///
-        absorb(sorteo_fe) cluster(id_anon)
-    quietly sum total_wage if ganador == 0
-    estadd scalar cmean = r(mean)
-    estadd local ctl_imb "`mark_imb'"
-    estadd local ctl_full "`mark_full'"
-
-    eststo itt_logw_`spec': reghdfe log_wage ganador `controls' ///
-        if employed == 1, absorb(sorteo_fe) cluster(id_anon)
-    quietly sum log_wage if ganador == 0 & employed == 1
-    estadd scalar cmean = r(mean)
-    estadd local ctl_imb "`mark_imb'"
-    estadd local ctl_full "`mark_full'"
-}
-
-esttab itt_wage_noctl itt_wage_imbctl itt_wage_ctl ///
-       itt_logw_noctl itt_logw_imbctl itt_logw_ctl ///
-       using "$tables/table_intensive.tex", replace ///
-    keep(ganador) ///
-    b(%9.0fc %9.0fc %9.0fc %9.4f %9.4f %9.4f) ///
-    se(%9.0fc %9.0fc %9.0fc %9.4f %9.4f %9.4f) ///
-    star(* 0.10 ** 0.05 *** 0.01) ///
-    nonumbers nomtitles noobs nor2 ///
-    coeflabels(ganador "Ganador") ///
-    prehead(`"\begin{table}[htbp]\centering"' ///
-            `"\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}"' ///
-            `"\caption{Intensive Margin: Wage Effects of PROCREAR Credit}"' ///
-            `"\label{tab:intensive}"' ///
-            `"\scriptsize"' ///
-            `"\begin{tabular}{l*{6}{c}}"' ///
-            `"\hline\hline"' ///
-            `" & \multicolumn{3}{c}{Wage (levels)} & \multicolumn{3}{c}{Log Wage|Emp} \\"' ///
+            `" & \multicolumn{3}{c}{Formal Emp} & \multicolumn{3}{c}{Monotributo} \\"' ///
             `"\cline{2-4}\cline{5-7}"' ///
             `" & (1) & (2) & (3) & (4) & (5) & (6) \\"' ///
             `"\hline"' ///
@@ -517,1101 +524,975 @@ esttab itt_wage_noctl itt_wage_imbctl itt_wage_ctl ///
 * --- Panel B: IV ---
 eststo clear
 
-foreach spec in "noctl" "imbctl" "ctl" {
+foreach spec in "noctl" "agectl" "ctl" {
     if "`spec'" == "noctl" {
         local controls ""
-        local mark_imb ""
+        local mark_age ""
         local mark_full ""
     }
-    if "`spec'" == "imbctl" {
+    if "`spec'" == "agectl" {
         local controls "edad"
-        local mark_imb "\checkmark"
+        local mark_age "\checkmark"
         local mark_full ""
     }
     if "`spec'" == "ctl" {
         local controls "edad pre_employed pre_wage mujer"
-        local mark_imb "\checkmark"
+        local mark_age "\checkmark"
         local mark_full "\checkmark"
     }
 
-    eststo iv_wage_`spec': ivreghdfe total_wage `controls' ///
+    eststo iv_emp_`spec': ivreghdfe employed `controls' ///
         (receptor = ganador), absorb(sorteo_fe) cluster(id_anon)
-    local _wid = e(widstat)
-    quietly sum total_wage if ganador == 0
-    local _cmval = r(mean)
-    estadd scalar cmean = `_cmval'
-    local _cm: display %12.0fc `_cmval'
-    estadd local cmean_s = strtrim("`_cm'")
-    estadd scalar fs_F = `_wid'
-    estadd local ctl_imb "`mark_imb'"
+    quietly sum employed if ganador == 0
+    estadd scalar cmean = r(mean)
+    estadd scalar fs_F = e(widstat)
+    estadd local ctl_age "`mark_age'"
     estadd local ctl_full "`mark_full'"
 
-    eststo iv_logw_`spec': ivreghdfe log_wage `controls' ///
-        (receptor = ganador) if employed == 1, absorb(sorteo_fe) cluster(id_anon)
-    local _wid = e(widstat)
-    quietly sum log_wage if ganador == 0 & employed == 1
-    local _cmval = r(mean)
-    estadd scalar cmean = `_cmval'
-    local _cm: display %9.3f `_cmval'
-    estadd local cmean_s = strtrim("`_cm'")
-    estadd scalar fs_F = `_wid'
-    estadd local ctl_imb "`mark_imb'"
+    eststo iv_mono_`spec': ivreghdfe is_monotributo `controls' ///
+        (receptor = ganador), absorb(sorteo_fe) cluster(id_anon)
+    quietly sum is_monotributo if ganador == 0
+    estadd scalar cmean = r(mean)
+    estadd scalar fs_F = e(widstat)
+    estadd local ctl_age "`mark_age'"
     estadd local ctl_full "`mark_full'"
 }
 
-esttab iv_wage_noctl iv_wage_imbctl iv_wage_ctl ///
-       iv_logw_noctl iv_logw_imbctl iv_logw_ctl ///
-       using "$tables/table_intensive.tex", append ///
-    keep(receptor) ///
-    b(%9.0fc %9.0fc %9.0fc %9.4f %9.4f %9.4f) ///
-    se(%9.0fc %9.0fc %9.0fc %9.4f %9.4f %9.4f) ///
+esttab iv_emp_noctl iv_emp_agectl iv_emp_ctl ///
+       iv_mono_noctl iv_mono_agectl iv_mono_ctl ///
+       using "$tables/table_extensive.tex", append ///
+    keep(receptor) se(%9.4f) b(%9.4f) ///
     star(* 0.10 ** 0.05 *** 0.01) ///
     nonumbers nomtitles ///
     coeflabels(receptor "Receptor") ///
     prehead(`"\multicolumn{7}{l}{\textit{Panel B: IV / 2SLS}} \\"') ///
     prefoot(`"\hline"') ///
-    stats(cmean_s fs_F N ctl_imb ctl_full, ///
+    stats(cmean fs_F N ctl_age ctl_full, ///
           labels("Control mean" "First-stage F" "Observations" ///
                  "Age only" "All controls") ///
-          fmt(%s %9.0fc %9.0fc %s %s)) ///
+          fmt(%9.3f %9.1f %9.0fc %s %s)) ///
     postfoot(`"\hline\hline"' ///
-             `"\multicolumn{7}{p{0.95\textwidth}}{\scriptsize 2SLS. Instrument: ganador. Cols (1),(4): no controls. (2),(5): age only. (3),(6): all controls (add pre-employed, pre-wage, mujer). Wages: real, SAC-adjusted. Log Wage|Emp on employed subsample. SE clustered at person level. Sorteo FE absorbed.}\\"' ///
+             `"\multicolumn{7}{p{0.95\textwidth}}{\scriptsize 2SLS. Instrument: ganador. Cols (1),(4): no controls. (2),(5): age only. (3),(6): all controls (add pre-employed, pre-wage, mujer). SE clustered at person level. Sorteo FE absorbed.}\\"' ///
              `"\multicolumn{7}{l}{\scriptsize \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}"' ///
              `"\end{tabular}"' ///
              `"\end{table}"') ///
     substitute(\_ _) fragment
 
-di as text "  table_intensive.tex saved (paper Section 5.2)"
+di as text "  table_extensive.tex saved (paper Section 5.1)"
 
 
 /*==============================================================================
-  STEP 6: HETEROGENEITY BY LOTTERY COHORT
+  STEP 5b: NEW TABLE — Share of months employed in post-`k_months' window
 
-  Paper Section 5.2 text: cohort decomposition numbers
-  table_het_employed.tex    — Employment by cohort (12 cols: 4 years × 3 specs)
-  table10_het_iv_wage.tex   — IV Wage by cohort (12 cols: 4 years × 3 specs)
+  table_emp_share_`k_label'.tex
+  3 cols (noctl, agectl, ctl) — IV only
 ==============================================================================*/
 
-di as text _n "=== STEP 6: Heterogeneity by Cohort ===" _n
+di as text _n "=== STEP 5b: Table for emp_share_`k_label' (IV) ===" _n
 
 use "$temp/cross_section_v2.dta", clear
 
-* ======================================================================
-* EMPLOYMENT BY COHORT (12 cols)
-* ======================================================================
-
-* --- Panel A: ITT ---
 eststo clear
 
-foreach spec in "noctl" "imbctl" "ctl" {
+foreach spec in "noctl" "agectl" "ctl" {
     if "`spec'" == "noctl" {
         local controls ""
-        local mark_imb ""
+        local mark_age ""
         local mark_full ""
     }
-    if "`spec'" == "imbctl" {
+    if "`spec'" == "agectl" {
         local controls "edad"
-        local mark_imb "\checkmark"
+        local mark_age "\checkmark"
         local mark_full ""
     }
     if "`spec'" == "ctl" {
         local controls "edad pre_employed pre_wage mujer"
-        local mark_imb "\checkmark"
+        local mark_age "\checkmark"
         local mark_full "\checkmark"
     }
 
-    forvalues y = 2020/2023 {
-        eststo itt_`y'_`spec': reghdfe employed ganador `controls' ///
-            if cohort_year == `y', absorb(sorteo_fe) cluster(id_anon)
-        quietly sum employed if ganador == 0 & cohort_year == `y'
-        estadd scalar cmean = r(mean)
-        estadd local ctl_imb "`mark_imb'"
-        estadd local ctl_full "`mark_full'"
-    }
+    eststo iv_emp`k_months'_`spec': ivreghdfe emp_share_`k_label' `controls' ///
+        (receptor = ganador), absorb(sorteo_fe) cluster(id_anon)
+    quietly sum emp_share_`k_label' if ganador == 0
+    estadd scalar cmean = r(mean)
+    estadd scalar fs_F = e(widstat)
+    estadd local ctl_age "`mark_age'"
+    estadd local ctl_full "`mark_full'"
 }
 
-esttab itt_2020_noctl itt_2020_imbctl itt_2020_ctl ///
-       itt_2021_noctl itt_2021_imbctl itt_2021_ctl ///
-       itt_2022_noctl itt_2022_imbctl itt_2022_ctl ///
-       itt_2023_noctl itt_2023_imbctl itt_2023_ctl ///
-       using "$tables/table_het_employed.tex", replace ///
-    keep(ganador) se(%9.4f) b(%9.4f) ///
-    star(* 0.10 ** 0.05 *** 0.01) ///
-    nonumbers nomtitles noobs nor2 ///
-    coeflabels(ganador "Ganador") ///
-    prehead(`"\begin{table}[htbp]\centering"' ///
-            `"\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}"' ///
-            `"\caption{Heterogeneity by Cohort: Formal Employment}"' ///
-            `"\label{tab:het_employed}"' ///
-            `"\tiny"' ///
-            `"\begin{tabular}{l*{12}{c}}"' ///
-            `"\hline\hline"' ///
-            `" & \multicolumn{3}{c}{2020} & \multicolumn{3}{c}{2021} & \multicolumn{3}{c}{2022} & \multicolumn{3}{c}{2023} \\"' ///
-            `"\cline{2-4}\cline{5-7}\cline{8-10}\cline{11-13}"' ///
-            `" & (1) & (2) & (3) & (4) & (5) & (6) & (7) & (8) & (9) & (10) & (11) & (12) \\"' ///
-            `"\hline"' ///
-            `"\multicolumn{13}{l}{\textit{Panel A: ITT}} \\"') ///
-    postfoot(`"[1em]"') ///
-    substitute(\_ _) fragment
-
-* --- Panel B: IV ---
-eststo clear
-
-foreach spec in "noctl" "imbctl" "ctl" {
-    if "`spec'" == "noctl" {
-        local controls ""
-        local mark_imb ""
-        local mark_full ""
-    }
-    if "`spec'" == "imbctl" {
-        local controls "edad"
-        local mark_imb "\checkmark"
-        local mark_full ""
-    }
-    if "`spec'" == "ctl" {
-        local controls "edad pre_employed pre_wage mujer"
-        local mark_imb "\checkmark"
-        local mark_full "\checkmark"
-    }
-
-    forvalues y = 2020/2023 {
-        eststo iv_`y'_`spec': ivreghdfe employed `controls' ///
-            (receptor = ganador) if cohort_year == `y', absorb(sorteo_fe) cluster(id_anon)
-        quietly sum employed if ganador == 0 & cohort_year == `y'
-        estadd scalar cmean = r(mean)
-        estadd scalar fs_F = e(widstat)
-        estadd local ctl_imb "`mark_imb'"
-        estadd local ctl_full "`mark_full'"
-    }
-}
-
-esttab iv_2020_noctl iv_2020_imbctl iv_2020_ctl ///
-       iv_2021_noctl iv_2021_imbctl iv_2021_ctl ///
-       iv_2022_noctl iv_2022_imbctl iv_2022_ctl ///
-       iv_2023_noctl iv_2023_imbctl iv_2023_ctl ///
-       using "$tables/table_het_employed.tex", append ///
+esttab iv_emp`k_months'_noctl iv_emp`k_months'_agectl iv_emp`k_months'_ctl ///
+       using "$tables/table_emp_share_`k_label'.tex", replace ///
     keep(receptor) se(%9.4f) b(%9.4f) ///
     star(* 0.10 ** 0.05 *** 0.01) ///
     nonumbers nomtitles ///
     coeflabels(receptor "Receptor") ///
-    prehead(`"\multicolumn{13}{l}{\textit{Panel B: IV / 2SLS}} \\"') ///
-    prefoot(`"\hline"') ///
-    stats(cmean fs_F N ctl_imb ctl_full, ///
-          labels("Control mean" "First-stage F" "Observations" ///
-                 "Age only" "All controls") ///
-          fmt(%9.3f %9.1f %9.0fc %s %s)) ///
-    postfoot(`"\hline\hline"' ///
-             `"\multicolumn{13}{p{0.95\textwidth}}{\tiny 2SLS. Instrument: ganador. Cols (1),(4),(7),(10): no controls. (2),(5),(8),(11): age only. (3),(6),(9),(12): all controls (add pre-employed, pre-wage, mujer). SE clustered at person level. Sorteo FE absorbed.}\\"' ///
-             `"\multicolumn{13}{l}{\tiny \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}"' ///
-             `"\end{tabular}"' ///
-             `"\end{table}"') ///
-    substitute(\_ _) fragment
-
-di as text "  table_het_employed.tex saved (paper Section 5.2 text)"
-
-
-* ======================================================================
-* IV WAGE BY COHORT (12 cols, IV only)
-* ======================================================================
-
-eststo clear
-
-foreach spec in "noctl" "imbctl" "ctl" {
-    if "`spec'" == "noctl" {
-        local controls ""
-        local mark_imb ""
-        local mark_full ""
-    }
-    if "`spec'" == "imbctl" {
-        local controls "edad"
-        local mark_imb "\checkmark"
-        local mark_full ""
-    }
-    if "`spec'" == "ctl" {
-        local controls "edad pre_employed pre_wage mujer"
-        local mark_imb "\checkmark"
-        local mark_full "\checkmark"
-    }
-
-    forvalues y = 2020/2023 {
-        eststo iv_w_`y'_`spec': ivreghdfe total_wage `controls' ///
-            (receptor = ganador) if cohort_year == `y', absorb(sorteo_fe) cluster(id_anon)
-        quietly sum total_wage if ganador == 0 & cohort_year == `y'
-        estadd scalar cmean = r(mean)
-        estadd scalar fs_F = e(widstat)
-        estadd local ctl_imb "`mark_imb'"
-        estadd local ctl_full "`mark_full'"
-    }
-}
-
-esttab iv_w_2020_noctl iv_w_2020_imbctl iv_w_2020_ctl ///
-       iv_w_2021_noctl iv_w_2021_imbctl iv_w_2021_ctl ///
-       iv_w_2022_noctl iv_w_2022_imbctl iv_w_2022_ctl ///
-       iv_w_2023_noctl iv_w_2023_imbctl iv_w_2023_ctl ///
-       using "$tables/table10_het_iv_wage.tex", replace ///
-    keep(receptor) se(%9.4f) b(%9.4f) ///
-    star(* 0.10 ** 0.05 *** 0.01) ///
-    nonumbers nomtitles ///
-    coeflabels(receptor "Receptor") ///
-    prehead(`"\begin{table}[htbp]\centering"' ///
+    prehead(`"\begin{table}[H]\centering"' ///
             `"\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}"' ///
-            `"\caption{IV Heterogeneity by Cohort: Wage}"' ///
-            `"\label{tab:het_iv_wage}"' ///
-            `"\tiny"' ///
-            `"\begin{tabular}{l*{12}{c}}"' ///
+            `"\caption{Share of Months Employed in Post-`k_months' Window}"' ///
+            `"\label{tab:emp_share_`k_label'}"' ///
+            `"\scriptsize"' ///
+            `"\begin{tabular}{l*{3}{c}}"' ///
             `"\hline\hline"' ///
-            `" & \multicolumn{3}{c}{2020} & \multicolumn{3}{c}{2021} & \multicolumn{3}{c}{2022} & \multicolumn{3}{c}{2023} \\"' ///
-            `"\cline{2-4}\cline{5-7}\cline{8-10}\cline{11-13}"' ///
-            `" & (1) & (2) & (3) & (4) & (5) & (6) & (7) & (8) & (9) & (10) & (11) & (12) \\"' ///
+            `" & (1) & (2) & (3) \\"' ///
             `"\hline"') ///
     prefoot(`"\hline"') ///
-    stats(cmean fs_F N ctl_imb ctl_full, ///
+    stats(cmean fs_F N ctl_age ctl_full, ///
           labels("Control mean" "First-stage F" "Observations" ///
                  "Age only" "All controls") ///
-          fmt(%12.0f %9.1f %9.0fc %s %s)) ///
+          fmt(%9.4f %9.1f %9.0fc %s %s)) ///
     postfoot(`"\hline\hline"' ///
-             `"\multicolumn{13}{p{0.95\textwidth}}{\tiny 2SLS. Instrument: ganador. Cols (1),(4),(7),(10): no controls. (2),(5),(8),(11): age only. (3),(6),(9),(12): all controls (add pre-employed, pre-wage, mujer). Wages: real, SAC-adjusted. SE clustered at person level. Sorteo FE absorbed.}\\"' ///
-             `"\multicolumn{13}{l}{\tiny \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}"' ///
-             `"\end{tabular}"' ///
-             `"\end{table}"') ///
-    substitute(\_ _)
-
-di as text "  table10_het_iv_wage.tex saved (paper Section 5.2 text)"
-
-
-/*==============================================================================
-  STEP 7: BY CREDIT TYPE — EXTENSIVE + INTENSIVE
-
-  Paper Section 5.3 text: numbers by DU, Construcción, Lotes
-  Output per group: type_{grp}_ext.tex (9 cols) + type_{grp}_int.tex (6 cols)
-==============================================================================*/
-
-di as text _n "=== STEP 7: By Credit Type ===" _n
-
-use "$temp/cross_section_v2.dta", clear
-
-local grp_names `" "DU" "Construccion" "Lotes" "'
-
-forvalues g = 1/3 {
-    local grp : word `g' of `grp_names'
-    local grp_lower = lower("`grp'")
-
-    di as text _n "  --- `grp' (tipo_grupo == `g') ---"
-
-    * ==================================================================
-    * EXTENSIVE MARGIN (9 cols)
-    * ==================================================================
-
-    * --- Panel A: ITT ---
-    eststo clear
-
-    foreach spec in "noctl" "imbctl" "ctl" {
-        if "`spec'" == "noctl" {
-            local controls ""
-            local mark_imb ""
-            local mark_full ""
-        }
-        if "`spec'" == "imbctl" {
-            local controls "edad"
-            local mark_imb "\checkmark"
-            local mark_full ""
-        }
-        if "`spec'" == "ctl" {
-            local controls "edad pre_employed pre_wage mujer"
-            local mark_imb "\checkmark"
-            local mark_full "\checkmark"
-        }
-
-        eststo itt_emp_`spec': reghdfe employed ganador `controls' ///
-            if tipo_grupo == `g', absorb(sorteo_fe) cluster(id_anon)
-        quietly sum employed if ganador == 0 & tipo_grupo == `g'
-        estadd scalar cmean = r(mean)
-        estadd local ctl_imb "`mark_imb'"
-        estadd local ctl_full "`mark_full'"
-
-        eststo itt_mono_`spec': reghdfe is_monotributo ganador `controls' ///
-            if tipo_grupo == `g', absorb(sorteo_fe) cluster(id_anon)
-        quietly sum is_monotributo if ganador == 0 & tipo_grupo == `g'
-        estadd scalar cmean = r(mean)
-        estadd local ctl_imb "`mark_imb'"
-        estadd local ctl_full "`mark_full'"
-
-        eststo itt_any_`spec': reghdfe any_work ganador `controls' ///
-            if tipo_grupo == `g', absorb(sorteo_fe) cluster(id_anon)
-        quietly sum any_work if ganador == 0 & tipo_grupo == `g'
-        estadd scalar cmean = r(mean)
-        estadd local ctl_imb "`mark_imb'"
-        estadd local ctl_full "`mark_full'"
-    }
-
-    esttab itt_emp_noctl itt_emp_imbctl itt_emp_ctl ///
-           itt_mono_noctl itt_mono_imbctl itt_mono_ctl ///
-           itt_any_noctl itt_any_imbctl itt_any_ctl ///
-           using "$tables/type_`grp_lower'_ext.tex", replace ///
-        keep(ganador) se(%9.4f) b(%9.4f) ///
-        star(* 0.10 ** 0.05 *** 0.01) ///
-        nonumbers nomtitles noobs nor2 ///
-        coeflabels(ganador "Ganador") ///
-        prehead(`"\begin{table}[htbp]\centering"' ///
-                `"\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}"' ///
-                `"\caption{Extensive Margin: Employment Effects (`grp')}"' ///
-                `"\label{tab:ext_`grp_lower'}"' ///
-                `"\scriptsize"' ///
-                `"\setlength{\tabcolsep}{2pt}"' ///
-                `"\begin{tabular}{@{}l*{9}{c}@{}}"' ///
-                `"\hline\hline"' ///
-                `" & \multicolumn{3}{c}{Formal Emp} & \multicolumn{3}{c}{Monotributo} & \multicolumn{3}{c}{Any Work} \\"' ///
-                `"\cline{2-4}\cline{5-7}\cline{8-10}"' ///
-                `" & (1) & (2) & (3) & (4) & (5) & (6) & (7) & (8) & (9) \\"' ///
-                `"\hline"' ///
-                `"\multicolumn{10}{l}{\textit{Panel A: ITT}} \\"') ///
-        postfoot(`"[1em]"') ///
-        substitute(\_ _) fragment
-
-    * --- Panel B: IV ---
-    eststo clear
-
-    foreach spec in "noctl" "imbctl" "ctl" {
-        if "`spec'" == "noctl" {
-            local controls ""
-            local mark_imb ""
-            local mark_full ""
-        }
-        if "`spec'" == "imbctl" {
-            local controls "edad"
-            local mark_imb "\checkmark"
-            local mark_full ""
-        }
-        if "`spec'" == "ctl" {
-            local controls "edad pre_employed pre_wage mujer"
-            local mark_imb "\checkmark"
-            local mark_full "\checkmark"
-        }
-
-        eststo iv_emp_`spec': ivreghdfe employed `controls' ///
-            (receptor = ganador) if tipo_grupo == `g', absorb(sorteo_fe) cluster(id_anon)
-        quietly sum employed if ganador == 0 & tipo_grupo == `g'
-        estadd scalar cmean = r(mean)
-        estadd scalar fs_F = e(widstat)
-        estadd local ctl_imb "`mark_imb'"
-        estadd local ctl_full "`mark_full'"
-
-        eststo iv_mono_`spec': ivreghdfe is_monotributo `controls' ///
-            (receptor = ganador) if tipo_grupo == `g', absorb(sorteo_fe) cluster(id_anon)
-        quietly sum is_monotributo if ganador == 0 & tipo_grupo == `g'
-        estadd scalar cmean = r(mean)
-        estadd scalar fs_F = e(widstat)
-        estadd local ctl_imb "`mark_imb'"
-        estadd local ctl_full "`mark_full'"
-
-        eststo iv_any_`spec': ivreghdfe any_work `controls' ///
-            (receptor = ganador) if tipo_grupo == `g', absorb(sorteo_fe) cluster(id_anon)
-        quietly sum any_work if ganador == 0 & tipo_grupo == `g'
-        estadd scalar cmean = r(mean)
-        estadd scalar fs_F = e(widstat)
-        estadd local ctl_imb "`mark_imb'"
-        estadd local ctl_full "`mark_full'"
-    }
-
-    esttab iv_emp_noctl iv_emp_imbctl iv_emp_ctl ///
-           iv_mono_noctl iv_mono_imbctl iv_mono_ctl ///
-           iv_any_noctl iv_any_imbctl iv_any_ctl ///
-           using "$tables/type_`grp_lower'_ext.tex", append ///
-        keep(receptor) se(%9.4f) b(%9.4f) ///
-        star(* 0.10 ** 0.05 *** 0.01) ///
-        nonumbers nomtitles ///
-        coeflabels(receptor "Receptor") ///
-        prehead(`"\multicolumn{10}{l}{\textit{Panel B: IV / 2SLS}} \\"') ///
-        prefoot(`"\hline"') ///
-        stats(cmean fs_F N ctl_imb ctl_full, ///
-              labels("Control mean" "First-stage F" "Observations" ///
-                     "Age only" "All controls") ///
-              fmt(%9.3f %9.1f %9.0fc %s %s)) ///
-        postfoot(`"\hline\hline"' ///
-                 `"\multicolumn{10}{p{0.95\textwidth}}{\scriptsize 2SLS. Instrument: ganador. Cols (1),(4),(7): no controls. (2),(5),(8): age only. (3),(6),(9): all controls (add pre-employed, pre-wage, mujer). SE clustered at person level. Sorteo FE absorbed.}\\"' ///
-                 `"\multicolumn{10}{l}{\scriptsize \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}"' ///
-                 `"\end{tabular}"' ///
-                 `"\end{table}"') ///
-        substitute(\_ _) fragment
-
-    * ==================================================================
-    * INTENSIVE MARGIN (6 cols)
-    * ==================================================================
-
-    * --- Panel A: ITT ---
-    eststo clear
-
-    foreach spec in "noctl" "imbctl" "ctl" {
-        if "`spec'" == "noctl" {
-            local controls ""
-            local mark_imb ""
-            local mark_full ""
-        }
-        if "`spec'" == "imbctl" {
-            local controls "edad"
-            local mark_imb "\checkmark"
-            local mark_full ""
-        }
-        if "`spec'" == "ctl" {
-            local controls "edad pre_employed pre_wage mujer"
-            local mark_imb "\checkmark"
-            local mark_full "\checkmark"
-        }
-
-        eststo itt_wage_`spec': reghdfe total_wage ganador `controls' ///
-            if tipo_grupo == `g', absorb(sorteo_fe) cluster(id_anon)
-        quietly sum total_wage if ganador == 0 & tipo_grupo == `g'
-        estadd scalar cmean = r(mean)
-        estadd local ctl_imb "`mark_imb'"
-        estadd local ctl_full "`mark_full'"
-
-        eststo itt_logw_`spec': reghdfe log_wage ganador `controls' ///
-            if tipo_grupo == `g' & employed == 1, absorb(sorteo_fe) cluster(id_anon)
-        quietly sum log_wage if ganador == 0 & tipo_grupo == `g' & employed == 1
-        estadd scalar cmean = r(mean)
-        estadd local ctl_imb "`mark_imb'"
-        estadd local ctl_full "`mark_full'"
-    }
-
-    esttab itt_wage_noctl itt_wage_imbctl itt_wage_ctl ///
-           itt_logw_noctl itt_logw_imbctl itt_logw_ctl ///
-           using "$tables/type_`grp_lower'_int.tex", replace ///
-        keep(ganador) se(%9.4f) b(%9.4f) ///
-        star(* 0.10 ** 0.05 *** 0.01) ///
-        nonumbers nomtitles noobs nor2 ///
-        coeflabels(ganador "Ganador") ///
-        prehead(`"\begin{table}[htbp]\centering"' ///
-                `"\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}"' ///
-                `"\caption{Intensive Margin: Wage Effects (`grp')}"' ///
-                `"\label{tab:int_`grp_lower'}"' ///
-                `"\begin{tabular}{l*{6}{c}}"' ///
-                `"\hline\hline"' ///
-                `" & \multicolumn{3}{c}{Wage (levels)} & \multicolumn{3}{c}{Log Wage|Emp} \\"' ///
-                `"\cline{2-4}\cline{5-7}"' ///
-                `" & (1) & (2) & (3) & (4) & (5) & (6) \\"' ///
-                `"\hline"' ///
-                `"\multicolumn{7}{l}{\textit{Panel A: ITT}} \\"') ///
-        postfoot(`"[1em]"') ///
-        substitute(\_ _) fragment
-
-    * --- Panel B: IV ---
-    eststo clear
-
-    foreach spec in "noctl" "imbctl" "ctl" {
-        if "`spec'" == "noctl" {
-            local controls ""
-            local mark_imb ""
-            local mark_full ""
-        }
-        if "`spec'" == "imbctl" {
-            local controls "edad"
-            local mark_imb "\checkmark"
-            local mark_full ""
-        }
-        if "`spec'" == "ctl" {
-            local controls "edad pre_employed pre_wage mujer"
-            local mark_imb "\checkmark"
-            local mark_full "\checkmark"
-        }
-
-        eststo iv_wage_`spec': ivreghdfe total_wage `controls' ///
-            (receptor = ganador) if tipo_grupo == `g', absorb(sorteo_fe) cluster(id_anon)
-        quietly sum total_wage if ganador == 0 & tipo_grupo == `g'
-        estadd scalar cmean = r(mean)
-        estadd scalar fs_F = e(widstat)
-        estadd local ctl_imb "`mark_imb'"
-        estadd local ctl_full "`mark_full'"
-
-        eststo iv_logw_`spec': ivreghdfe log_wage `controls' ///
-            (receptor = ganador) if tipo_grupo == `g' & employed == 1, ///
-            absorb(sorteo_fe) cluster(id_anon)
-        quietly sum log_wage if ganador == 0 & tipo_grupo == `g' & employed == 1
-        estadd scalar cmean = r(mean)
-        estadd scalar fs_F = e(widstat)
-        estadd local ctl_imb "`mark_imb'"
-        estadd local ctl_full "`mark_full'"
-    }
-
-    esttab iv_wage_noctl iv_wage_imbctl iv_wage_ctl ///
-           iv_logw_noctl iv_logw_imbctl iv_logw_ctl ///
-           using "$tables/type_`grp_lower'_int.tex", append ///
-        keep(receptor) se(%9.4f) b(%9.4f) ///
-        star(* 0.10 ** 0.05 *** 0.01) ///
-        nonumbers nomtitles ///
-        coeflabels(receptor "Receptor") ///
-        prehead(`"\multicolumn{7}{l}{\textit{Panel B: IV / 2SLS}} \\"') ///
-        prefoot(`"\hline"') ///
-        stats(cmean fs_F N ctl_imb ctl_full, ///
-              labels("Control mean" "First-stage F" "Observations" ///
-                     "Age only" "All controls") ///
-              fmt(%9.3f %9.1f %9.0fc %s %s)) ///
-        postfoot(`"\hline\hline"' ///
-                 `"\multicolumn{7}{p{0.95\textwidth}}{\scriptsize 2SLS. Instrument: ganador. Cols (1),(4): no controls. (2),(5): age only. (3),(6): all controls (add pre-employed, pre-wage, mujer). Wages: real, SAC-adjusted. SE clustered at person level. Sorteo FE absorbed.}\\"' ///
-                 `"\multicolumn{7}{l}{\scriptsize \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}"' ///
-                 `"\end{tabular}"' ///
-                 `"\end{table}"') ///
-        substitute(\_ _) fragment
-
-    di as text "  type_`grp_lower'_ext.tex + type_`grp_lower'_int.tex saved"
-}
-
-di as text _n "  Credit type tables saved (paper Section 5.3 text)"
-
-
-/*==============================================================================
-  STEP 8: DU HETEROGENEITY BY COHORT YEAR
-
-  Paper Section 5.2 text references DU-specific cohort patterns.
-  type_du_het_year.tex       — Employment by year (12 cols)
-  type_du_het_wage_year.tex  — Log Wage|Emp by year (12 cols)
-==============================================================================*/
-
-di as text _n "=== STEP 8: DU het by cohort year ===" _n
-
-use "$temp/cross_section_v2.dta", clear
-
-* ======================================================================
-* DU EMPLOYMENT BY YEAR (12 cols)
-* ======================================================================
-
-* --- Panel A: ITT ---
-eststo clear
-
-foreach spec in "noctl" "imbctl" "ctl" {
-    if "`spec'" == "noctl" {
-        local controls ""
-        local mark_imb ""
-        local mark_full ""
-    }
-    if "`spec'" == "imbctl" {
-        local controls "edad"
-        local mark_imb "\checkmark"
-        local mark_full ""
-    }
-    if "`spec'" == "ctl" {
-        local controls "edad pre_employed pre_wage mujer"
-        local mark_imb "\checkmark"
-        local mark_full "\checkmark"
-    }
-
-    forvalues y = 2020/2023 {
-        capture eststo itt_`y'_`spec': reghdfe employed ganador `controls' ///
-            if tipo_grupo == 1 & cohort_year == `y', absorb(sorteo_fe) cluster(id_anon)
-        if _rc == 0 {
-            quietly sum employed if ganador == 0 & tipo_grupo == 1 & cohort_year == `y'
-            estadd scalar cmean = r(mean)
-            estadd local ctl_imb "`mark_imb'"
-            estadd local ctl_full "`mark_full'"
-        }
-    }
-}
-
-esttab itt_2020_noctl itt_2020_imbctl itt_2020_ctl ///
-       itt_2021_noctl itt_2021_imbctl itt_2021_ctl ///
-       itt_2022_noctl itt_2022_imbctl itt_2022_ctl ///
-       itt_2023_noctl itt_2023_imbctl itt_2023_ctl ///
-       using "$tables/type_du_het_year.tex", replace ///
-    keep(ganador) se(%9.4f) b(%9.4f) ///
-    star(* 0.10 ** 0.05 *** 0.01) ///
-    nonumbers nomtitles noobs nor2 ///
-    coeflabels(ganador "Ganador") ///
-    prehead(`"\begin{table}[htbp]\centering"' ///
-            `"\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}"' ///
-            `"\caption{Heterogeneity by Cohort: Formal Employment (DU)}"' ///
-            `"\label{tab:het_year_du}"' ///
-            `"\tiny"' ///
-            `"\begin{tabular}{l*{12}{c}}"' ///
-            `"\hline\hline"' ///
-            `" & \multicolumn{3}{c}{2020} & \multicolumn{3}{c}{2021} & \multicolumn{3}{c}{2022} & \multicolumn{3}{c}{2023} \\"' ///
-            `"\cline{2-4}\cline{5-7}\cline{8-10}\cline{11-13}"' ///
-            `" & (1) & (2) & (3) & (4) & (5) & (6) & (7) & (8) & (9) & (10) & (11) & (12) \\"' ///
-            `"\hline"' ///
-            `"\multicolumn{13}{l}{\textit{Panel A: ITT}} \\"') ///
-    postfoot(`"[1em]"') ///
-    substitute(\_ _) fragment
-
-* --- Panel B: IV ---
-eststo clear
-
-foreach spec in "noctl" "imbctl" "ctl" {
-    if "`spec'" == "noctl" {
-        local controls ""
-        local mark_imb ""
-        local mark_full ""
-    }
-    if "`spec'" == "imbctl" {
-        local controls "edad"
-        local mark_imb "\checkmark"
-        local mark_full ""
-    }
-    if "`spec'" == "ctl" {
-        local controls "edad pre_employed pre_wage mujer"
-        local mark_imb "\checkmark"
-        local mark_full "\checkmark"
-    }
-
-    forvalues y = 2020/2023 {
-        capture eststo iv_`y'_`spec': ivreghdfe employed `controls' ///
-            (receptor = ganador) if tipo_grupo == 1 & cohort_year == `y', ///
-            absorb(sorteo_fe) cluster(id_anon)
-        if _rc == 0 {
-            quietly sum employed if ganador == 0 & tipo_grupo == 1 & cohort_year == `y'
-            estadd scalar cmean = r(mean)
-            estadd scalar fs_F = e(widstat)
-            estadd local ctl_imb "`mark_imb'"
-            estadd local ctl_full "`mark_full'"
-        }
-    }
-}
-
-esttab iv_2020_noctl iv_2020_imbctl iv_2020_ctl ///
-       iv_2021_noctl iv_2021_imbctl iv_2021_ctl ///
-       iv_2022_noctl iv_2022_imbctl iv_2022_ctl ///
-       iv_2023_noctl iv_2023_imbctl iv_2023_ctl ///
-       using "$tables/type_du_het_year.tex", append ///
-    keep(receptor) se(%9.4f) b(%9.4f) ///
-    star(* 0.10 ** 0.05 *** 0.01) ///
-    nonumbers nomtitles ///
-    coeflabels(receptor "Receptor") ///
-    prehead(`"\multicolumn{13}{l}{\textit{Panel B: IV / 2SLS}} \\"') ///
-    prefoot(`"\hline"') ///
-    stats(cmean fs_F N ctl_imb ctl_full, ///
-          labels("Control mean" "First-stage F" "Observations" ///
-                 "Age only" "All controls") ///
-          fmt(%9.3f %9.1f %9.0fc %s %s)) ///
-    postfoot(`"\hline\hline"' ///
-             `"\multicolumn{13}{p{0.95\textwidth}}{\tiny 2SLS. Instrument: ganador. Cols (1),(4),(7),(10): no controls. (2),(5),(8),(11): age only. (3),(6),(9),(12): all controls (add pre-employed, pre-wage, mujer). SE clustered at person level. Sorteo FE absorbed.}\\"' ///
-             `"\multicolumn{13}{l}{\tiny \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}"' ///
+             `"\multicolumn{4}{p{0.85\textwidth}}{\scriptsize 2SLS. Instrument: ganador. Outcome: share of months employed in window [fecha\_sorteo + `k_months', Dec 2025]. (1): no controls. (2): age only. (3): all controls (add pre-employed, pre-wage, mujer). SE clustered at person level. Sorteo FE absorbed.}\\"' ///
+             `"\multicolumn{4}{l}{\scriptsize \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}"' ///
              `"\end{tabular}"' ///
              `"\end{table}"') ///
     substitute(\_ _) fragment
 
-di as text "  type_du_het_year.tex saved"
-
-
-* ======================================================================
-* DU LOG WAGE|EMP BY YEAR (12 cols)
-* ======================================================================
-
-* --- Panel A: ITT ---
-eststo clear
-
-foreach spec in "noctl" "imbctl" "ctl" {
-    if "`spec'" == "noctl" {
-        local controls ""
-        local mark_imb ""
-        local mark_full ""
-    }
-    if "`spec'" == "imbctl" {
-        local controls "edad"
-        local mark_imb "\checkmark"
-        local mark_full ""
-    }
-    if "`spec'" == "ctl" {
-        local controls "edad pre_employed pre_wage mujer"
-        local mark_imb "\checkmark"
-        local mark_full "\checkmark"
-    }
-
-    forvalues y = 2020/2023 {
-        capture eststo itt_w_`y'_`spec': reghdfe log_wage ganador `controls' ///
-            if tipo_grupo == 1 & cohort_year == `y' & employed == 1, absorb(sorteo_fe) cluster(id_anon)
-        if _rc == 0 {
-            quietly sum log_wage if ganador == 0 & tipo_grupo == 1 & cohort_year == `y' & employed == 1
-            estadd scalar cmean = r(mean)
-            estadd local ctl_imb "`mark_imb'"
-            estadd local ctl_full "`mark_full'"
-        }
-    }
-}
-
-esttab itt_w_2020_noctl itt_w_2020_imbctl itt_w_2020_ctl ///
-       itt_w_2021_noctl itt_w_2021_imbctl itt_w_2021_ctl ///
-       itt_w_2022_noctl itt_w_2022_imbctl itt_w_2022_ctl ///
-       itt_w_2023_noctl itt_w_2023_imbctl itt_w_2023_ctl ///
-       using "$tables/type_du_het_wage_year.tex", replace ///
-    keep(ganador) se(%9.4f) b(%9.4f) ///
-    star(* 0.10 ** 0.05 *** 0.01) ///
-    nonumbers nomtitles noobs nor2 ///
-    coeflabels(ganador "Ganador") ///
-    prehead(`"\begin{table}[htbp]\centering"' ///
-            `"\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}"' ///
-            `"\caption{Heterogeneity by Cohort: Log Wage|Emp (DU)}"' ///
-            `"\label{tab:het_wage_year_du}"' ///
-            `"\tiny"' ///
-            `"\begin{tabular}{l*{12}{c}}"' ///
-            `"\hline\hline"' ///
-            `" & \multicolumn{3}{c}{2020} & \multicolumn{3}{c}{2021} & \multicolumn{3}{c}{2022} & \multicolumn{3}{c}{2023} \\"' ///
-            `"\cline{2-4}\cline{5-7}\cline{8-10}\cline{11-13}"' ///
-            `" & (1) & (2) & (3) & (4) & (5) & (6) & (7) & (8) & (9) & (10) & (11) & (12) \\"' ///
-            `"\hline"' ///
-            `"\multicolumn{13}{l}{\textit{Panel A: ITT}} \\"') ///
-    postfoot(`"[1em]"') ///
-    substitute(\_ _) fragment
-
-* --- Panel B: IV ---
-eststo clear
-
-foreach spec in "noctl" "imbctl" "ctl" {
-    if "`spec'" == "noctl" {
-        local controls ""
-        local mark_imb ""
-        local mark_full ""
-    }
-    if "`spec'" == "imbctl" {
-        local controls "edad"
-        local mark_imb "\checkmark"
-        local mark_full ""
-    }
-    if "`spec'" == "ctl" {
-        local controls "edad pre_employed pre_wage mujer"
-        local mark_imb "\checkmark"
-        local mark_full "\checkmark"
-    }
-
-    forvalues y = 2020/2023 {
-        capture eststo iv_w_`y'_`spec': ivreghdfe log_wage `controls' ///
-            (receptor = ganador) if tipo_grupo == 1 & cohort_year == `y' & employed == 1, ///
-            absorb(sorteo_fe) cluster(id_anon)
-        if _rc == 0 {
-            quietly sum log_wage if ganador == 0 & tipo_grupo == 1 & cohort_year == `y' & employed == 1
-            estadd scalar cmean = r(mean)
-            estadd scalar fs_F = e(widstat)
-            estadd local ctl_imb "`mark_imb'"
-            estadd local ctl_full "`mark_full'"
-        }
-    }
-}
-
-esttab iv_w_2020_noctl iv_w_2020_imbctl iv_w_2020_ctl ///
-       iv_w_2021_noctl iv_w_2021_imbctl iv_w_2021_ctl ///
-       iv_w_2022_noctl iv_w_2022_imbctl iv_w_2022_ctl ///
-       iv_w_2023_noctl iv_w_2023_imbctl iv_w_2023_ctl ///
-       using "$tables/type_du_het_wage_year.tex", append ///
-    keep(receptor) se(%9.4f) b(%9.4f) ///
-    star(* 0.10 ** 0.05 *** 0.01) ///
-    nonumbers nomtitles ///
-    coeflabels(receptor "Receptor") ///
-    prehead(`"\multicolumn{13}{l}{\textit{Panel B: IV / 2SLS}} \\"') ///
-    prefoot(`"\hline"') ///
-    stats(cmean fs_F N ctl_imb ctl_full, ///
-          labels("Control mean" "First-stage F" "Observations" ///
-                 "Age only" "All controls") ///
-          fmt(%9.3f %9.1f %9.0fc %s %s)) ///
-    postfoot(`"\hline\hline"' ///
-             `"\multicolumn{13}{p{0.95\textwidth}}{\tiny 2SLS. Instrument: ganador. Cols (1),(4),(7),(10): no controls. (2),(5),(8),(11): age only. (3),(6),(9),(12): all controls (add pre-employed, pre-wage, mujer). Log Wage|Emp on employed subsample. SE clustered at person level. Sorteo FE absorbed.}\\"' ///
-             `"\multicolumn{13}{l}{\tiny \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}"' ///
-             `"\end{tabular}"' ///
-             `"\end{table}"') ///
-    substitute(\_ _) fragment
-
-di as text "  type_du_het_wage_year.tex saved"
+di as text "  table_emp_share_`k_label'.tex saved"
 
 
 /*==============================================================================
-  STEP 9: COMPACT HETEROGENEITY TABLE
+  STEP 5c: GENDER HETEROGENEITY — Interaction IV with sorteo × mujer FE
 
-  Single table with 4 outcome columns (Formal Emp, Monotributo, Any Work,
-  Log Wage|Emp). Panel A: rows by cohort year. Panel B: rows by credit type.
-  IV/2SLS with full controls only.
-  table_het_compact.tex — Paper Section: Heterogeneity
+  For each outcome y, estimate one IV regression with mujer interacted with
+  the (instrumented) treatment AND with edad. FE absorbs sorteo × mujer
+  (gender-specific sorteo intercepts), which makes this specification
+  numerically equivalent to subgroup IV (sample split by mujer).
+
+    ivreghdfe y edad muj_x_edad ///
+        (receptor muj_x_rec = ganador muj_x_gan) [if samp], ///
+        absorb(sorteo_fe_g) cluster(id_anon)
+
+  Extract:
+    β_M = coef on receptor          (LATE for men, mujer = 0)
+    δ   = coef on muj_x_rec         (differential effect, W − M)
+    β_W = β_M + δ via lincom        (LATE for women)
+    p-val(δ = 0) tests H0: β_M = β_W (asymptotic normal)
+
+  Sample restriction: ALL outcomes conditioned on pre_employed == 1
+  (retention margin among the formally pre-employed).
+
+  Note: with shared sorteo_fe instead of sorteo × mujer, this model imposes
+  equal sorteo levels for both genders — a restriction the data violates
+  strongly. See session log 2026-05-14 for the diagnostic.
+
+  Output: table_het_gender.tex
 ==============================================================================*/
 
-di as text _n "=== STEP 9: Compact heterogeneity table ===" _n
+di as text _n "=== STEP 5c: Gender heterogeneity (interaction IV, sorteo × mujer FE, 3 specs) ===" _n
 
 use "$temp/cross_section_v2.dta", clear
 
-local controls "edad pre_employed pre_wage mujer"
+* --- Interaction variables (mujer × everything) ---
+gen muj_x_rec          = mujer * receptor
+gen muj_x_gan          = mujer * ganador
+gen muj_x_edad         = mujer * edad
+gen muj_x_pre_employed = mujer * pre_employed
+gen muj_x_pre_wage     = mujer * pre_wage
 
+* --- Combined sorteo × género FE ---
+egen sorteo_fe_g = group(sorteo_fe mujer)
+
+local outcomes "employed is_monotributo emp_share_`k_label'"
+local n_out = wordcount("`outcomes'")
+
+* --- Open LaTeX table ---
 capture file close fh
-file open fh using "$tables/table_het_compact.tex", write replace
+file open fh using "$tables/table_het_gender.tex", write replace
 
 file write fh "\begin{table}[H]\centering" _n
 file write fh "\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}" _n
-file write fh "\caption{Heterogeneity: IV Estimates with Full Controls}" _n
-file write fh "\label{tab:het_compact}" _n
+file write fh "\caption{Heterogeneity by Gender: IV Estimates from Fully Interacted Model}" _n
+file write fh "\label{tab:het_gender}" _n
 file write fh "\scriptsize" _n
-file write fh "\begin{tabular}{@{}lcccc@{}}" _n
+file write fh "\setlength{\tabcolsep}{4pt}" _n
+file write fh "\begin{tabular}{@{}lccc@{}}" _n
 file write fh "\hline\hline" _n
-file write fh " & Formal Emp & Monotributo & Any Work & Log Wage\textbar Emp \\" _n
-file write fh " & (1) & (2) & (3) & (4) \\" _n
-file write fh "\hline" _n
+file write fh " & Formal Emp & Monotributo & Emp Share (`k_months'm+) \\" _n
+file write fh " & (1) & (2) & (3) \\" _n
 
-* =========== Panel A: By Cohort Year ===========
-file write fh "\multicolumn{5}{l}{\textit{Panel A: By Cohort Year}} \\" _n
-file write fh "\hline" _n
-
-forvalues y = 2020/2023 {
-
-    * --- Run 4 IV regressions ---
-    * 1. Formal Employment
-    ivreghdfe employed `controls' (receptor = ganador) ///
-        if cohort_year == `y', absorb(sorteo_fe) cluster(id_anon)
-    local b1 = _b[receptor]
-    local se1 = _se[receptor]
-    local n1 = e(N)
-    quietly sum employed if ganador == 0 & cohort_year == `y'
-    local cm1 = r(mean)
-
-    * 2. Monotributo
-    ivreghdfe is_monotributo `controls' (receptor = ganador) ///
-        if cohort_year == `y', absorb(sorteo_fe) cluster(id_anon)
-    local b2 = _b[receptor]
-    local se2 = _se[receptor]
-    quietly sum is_monotributo if ganador == 0 & cohort_year == `y'
-    local cm2 = r(mean)
-
-    * 3. Any Work
-    ivreghdfe any_work `controls' (receptor = ganador) ///
-        if cohort_year == `y', absorb(sorteo_fe) cluster(id_anon)
-    local b3 = _b[receptor]
-    local se3 = _se[receptor]
-    quietly sum any_work if ganador == 0 & cohort_year == `y'
-    local cm3 = r(mean)
-
-    * 4. Log Wage|Emp
-    ivreghdfe log_wage `controls' (receptor = ganador) ///
-        if cohort_year == `y' & employed == 1, absorb(sorteo_fe) cluster(id_anon)
-    local b4 = _b[receptor]
-    local se4 = _se[receptor]
-    local n4 = e(N)
-    quietly sum log_wage if ganador == 0 & cohort_year == `y' & employed == 1
-    local cm4 = r(mean)
-
-    * --- Significance stars ---
-    forvalues j = 1/4 {
-        local t = abs(`b`j''/`se`j'')
-        if `t' > 2.576      local star`j' "\sym{***}"
-        else if `t' > 1.960 local star`j' "\sym{**}"
-        else if `t' > 1.645 local star`j' "\sym{*}"
-        else                local star`j' ""
+* --- Outer loop: 3 specs as panels ---
+*     All outcomes conditioned on pre_employed == 1. Spec C drops
+*     pre_employed and muj_x_pre_employed (constant within sample).
+foreach spec in "noctl" "agectl" "ctl" {
+    if "`spec'" == "noctl" {
+        local ctl_use ""
+        local panel_label "Panel A: No Controls"
+    }
+    else if "`spec'" == "agectl" {
+        local ctl_use "edad muj_x_edad"
+        local panel_label "Panel B: Age Only"
+    }
+    else if "`spec'" == "ctl" {
+        local ctl_use "edad pre_wage muj_x_edad muj_x_pre_wage"
+        local panel_label "Panel C: Full Controls"
     }
 
-    * --- Format numbers ---
-    local b1s: display %9.4f `b1'
-    local b2s: display %9.4f `b2'
-    local b3s: display %9.4f `b3'
-    local b4s: display %9.4f `b4'
-    local se1s: display %9.4f `se1'
-    local se2s: display %9.4f `se2'
-    local se3s: display %9.4f `se3'
-    local se4s: display %9.4f `se4'
-    local cm1s: display %5.3f `cm1'
-    local cm2s: display %5.3f `cm2'
-    local cm3s: display %5.3f `cm3'
-    local cm4s: display %5.3f `cm4'
-    local n1s: display %12.0fc `n1'
-    local n4s: display %12.0fc `n4'
+    di as text _n(2) "===== SPEC: `spec' =====" _n
 
-    * --- Write rows ---
-    file write fh "`y'    & `b1s'`star1' & `b2s'`star2' & `b3s'`star3' & `b4s'`star4'\\" _n
-    file write fh "       & (`se1s') & (`se2s') & (`se3s') & (`se4s')\\" _n
-    file write fh "       & [`cm1s'; N=`=strtrim("`n1s'")'] & [`cm2s'] & [`cm3s'] & [`cm4s'; N=`=strtrim("`n4s'")']\\" _n
+    * --- Inner loop: run 3 regressions for this spec ---
+    *     All restricted to pre_employed == 1 (retention margin).
+    forvalues j = 1/`n_out' {
+        local outc : word `j' of `outcomes'
 
-    if `y' < 2023 file write fh "[0.5em]" _n
-}
+        local samp_cond "pre_employed == 1"
+        local reg_if   "if `samp_cond'"
+        local cm_M_if  "if ganador == 0 & mujer == 0 & `samp_cond'"
+        local cm_W_if  "if ganador == 0 & mujer == 1 & `samp_cond'"
 
-file write fh "\hline" _n
+        di as text _n "--- Outcome (`j'/`n_out'): `outc' `reg_if' ---"
 
-* =========== Panel B: By Credit Type ===========
-file write fh "\multicolumn{5}{l}{\textit{Panel B: By Credit Type}} \\" _n
-file write fh "\hline" _n
+        ivreghdfe `outc' `ctl_use' ///
+            (receptor muj_x_rec = ganador muj_x_gan) `reg_if', ///
+            absorb(sorteo_fe_g) cluster(id_anon)
 
-local grp_num = 0
-foreach grp_name in "DU" "Construcci\'{o}n" "Lotes" {
-    local ++grp_num
+        local b_M_`j'     = _b[receptor]
+        local se_M_`j'    = _se[receptor]
+        local b_diff_`j'  = _b[muj_x_rec]
+        local se_diff_`j' = _se[muj_x_rec]
+        local n_`j'       = e(N)
+        local fs_F_`j'    = e(widstat)
 
-    * --- Run 4 IV regressions ---
-    ivreghdfe employed `controls' (receptor = ganador) ///
-        if tipo_grupo == `grp_num', absorb(sorteo_fe) cluster(id_anon)
-    local b1 = _b[receptor]
-    local se1 = _se[receptor]
-    local n1 = e(N)
-    quietly sum employed if ganador == 0 & tipo_grupo == `grp_num'
-    local cm1 = r(mean)
+        lincom receptor + muj_x_rec
+        local b_W_`j'  = r(estimate)
+        local se_W_`j' = r(se)
 
-    ivreghdfe is_monotributo `controls' (receptor = ganador) ///
-        if tipo_grupo == `grp_num', absorb(sorteo_fe) cluster(id_anon)
-    local b2 = _b[receptor]
-    local se2 = _se[receptor]
-    quietly sum is_monotributo if ganador == 0 & tipo_grupo == `grp_num'
-    local cm2 = r(mean)
+        local t_diff = abs(`b_diff_`j''/`se_diff_`j'')
+        local p_diff_`j' = 2 * (1 - normal(`t_diff'))
 
-    ivreghdfe any_work `controls' (receptor = ganador) ///
-        if tipo_grupo == `grp_num', absorb(sorteo_fe) cluster(id_anon)
-    local b3 = _b[receptor]
-    local se3 = _se[receptor]
-    quietly sum any_work if ganador == 0 & tipo_grupo == `grp_num'
-    local cm3 = r(mean)
-
-    ivreghdfe log_wage `controls' (receptor = ganador) ///
-        if tipo_grupo == `grp_num' & employed == 1, absorb(sorteo_fe) cluster(id_anon)
-    local b4 = _b[receptor]
-    local se4 = _se[receptor]
-    local n4 = e(N)
-    quietly sum log_wage if ganador == 0 & tipo_grupo == `grp_num' & employed == 1
-    local cm4 = r(mean)
-
-    * --- Significance stars ---
-    forvalues j = 1/4 {
-        local t = abs(`b`j''/`se`j'')
-        if `t' > 2.576      local star`j' "\sym{***}"
-        else if `t' > 1.960 local star`j' "\sym{**}"
-        else if `t' > 1.645 local star`j' "\sym{*}"
-        else                local star`j' ""
+        quietly sum `outc' `cm_M_if'
+        local cm_M_`j' = r(mean)
+        quietly sum `outc' `cm_W_if'
+        local cm_W_`j' = r(mean)
     }
 
-    * --- Format numbers ---
-    local b1s: display %9.4f `b1'
-    local b2s: display %9.4f `b2'
-    local b3s: display %9.4f `b3'
-    local b4s: display %9.4f `b4'
-    local se1s: display %9.4f `se1'
-    local se2s: display %9.4f `se2'
-    local se3s: display %9.4f `se3'
-    local se4s: display %9.4f `se4'
-    local cm1s: display %5.3f `cm1'
-    local cm2s: display %5.3f `cm2'
-    local cm3s: display %5.3f `cm3'
-    local cm4s: display %5.3f `cm4'
-    local n1s: display %12.0fc `n1'
-    local n4s: display %12.0fc `n4'
+    * --- Write panel header + data rows ---
+    file write fh "\hline" _n
+    file write fh "\multicolumn{4}{l}{\textit{`panel_label'}} \\" _n
+    file write fh "\hline" _n
 
-    * --- Write rows ---
-    file write fh "`grp_name' & `b1s'`star1' & `b2s'`star2' & `b3s'`star3' & `b4s'`star4'\\" _n
-    file write fh "       & (`se1s') & (`se2s') & (`se3s') & (`se4s')\\" _n
-    file write fh "       & [`cm1s'; N=`=strtrim("`n1s'")'] & [`cm2s'] & [`cm3s'] & [`cm4s'; N=`=strtrim("`n4s'")']\\" _n
+    * β_M row
+    file write fh "\(\beta_M\) (Men)"
+    forvalues j = 1/`n_out' {
+        local b : display %9.4f `b_M_`j''
+        local t = abs(`b_M_`j''/`se_M_`j'')
+        if `t' > 2.576      local s "\sym{***}"
+        else if `t' > 1.960 local s "\sym{**}"
+        else if `t' > 1.645 local s "\sym{*}"
+        else                local s ""
+        file write fh " & `b'`s'"
+    }
+    file write fh " \\" _n
 
-    if `grp_num' < 3 file write fh "[0.5em]" _n
+    file write fh "    "
+    forvalues j = 1/`n_out' {
+        local se : display %9.4f `se_M_`j''
+        file write fh " & (`se')"
+    }
+    file write fh " \\[0.2em]" _n
+
+    * β_W row
+    file write fh "\(\beta_W\) (Women)"
+    forvalues j = 1/`n_out' {
+        local b : display %9.4f `b_W_`j''
+        local t = abs(`b_W_`j''/`se_W_`j'')
+        if `t' > 2.576      local s "\sym{***}"
+        else if `t' > 1.960 local s "\sym{**}"
+        else if `t' > 1.645 local s "\sym{*}"
+        else                local s ""
+        file write fh " & `b'`s'"
+    }
+    file write fh " \\" _n
+
+    file write fh "    "
+    forvalues j = 1/`n_out' {
+        local se : display %9.4f `se_W_`j''
+        file write fh " & (`se')"
+    }
+    file write fh " \\[0.2em]" _n
+
+    * δ row
+    file write fh "\(\delta = \beta_W - \beta_M\)"
+    forvalues j = 1/`n_out' {
+        local b : display %9.4f `b_diff_`j''
+        local t = abs(`b_diff_`j''/`se_diff_`j'')
+        if `t' > 2.576      local s "\sym{***}"
+        else if `t' > 1.960 local s "\sym{**}"
+        else if `t' > 1.645 local s "\sym{*}"
+        else                local s ""
+        file write fh " & `b'`s'"
+    }
+    file write fh " \\" _n
+
+    file write fh "    "
+    forvalues j = 1/`n_out' {
+        local se : display %9.4f `se_diff_`j''
+        file write fh " & (`se')"
+    }
+    file write fh " \\" _n
+
+    * p-val row
+    file write fh "p-val (H\(_0\): \(\delta = 0\))"
+    forvalues j = 1/`n_out' {
+        local p : display %5.3f `p_diff_`j''
+        file write fh " & `p'"
+    }
+    file write fh " \\" _n
+
+    * F-stat row
+    file write fh "First-stage F (joint)"
+    forvalues j = 1/`n_out' {
+        local f : display %9.1f `fs_F_`j''
+        file write fh " & `f'"
+    }
+    file write fh " \\" _n
+
+    * N row
+    file write fh "Observations"
+    forvalues j = 1/`n_out' {
+        local n : display %12.0fc `n_`j''
+        file write fh " & `=strtrim("`n'")'"
+    }
+    file write fh " \\" _n
 }
 
+* --- Control means (spec-independent) at bottom ---
+file write fh "\hline" _n
+
+file write fh "Control mean (Men)"
+forvalues j = 1/`n_out' {
+    local cm : display %5.3f `cm_M_`j''
+    file write fh " & `cm'"
+}
+file write fh " \\" _n
+
+file write fh "Control mean (Women)"
+forvalues j = 1/`n_out' {
+    local cm : display %5.3f `cm_W_`j''
+    file write fh " & `cm'"
+}
+file write fh " \\" _n
+
+* --- Footer ---
 file write fh "\hline\hline" _n
-file write fh "\multicolumn{5}{p{0.85\textwidth}}{\scriptsize IV/2SLS with full controls (edad, pre-employment, pre-wage, mujer). Instrument: \emph{ganador}. SE clustered at person level (in parentheses). Control means and N in brackets. Log Wage\textbar Emp estimated on employed subsample. Sorteo FE absorbed.}" _n
-file write fh "\multicolumn{5}{l}{\scriptsize \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}" _n
+file write fh "\multicolumn{4}{p{0.95\textwidth}}{\scriptsize IV/2SLS, fully-interacted regression per outcome with sorteo \(\times\) mujer fixed effects absorbed (gender-specific sorteo intercepts; equivalent to subgroup IV sample-split by mujer). Endogenous: \emph{receptor}, \emph{mujer}\(\times\)\emph{receptor}. Instruments: \emph{ganador}, \emph{mujer}\(\times\)\emph{ganador}. \textbf{All regressions restricted to \emph{pre\_employed = 1}} (retention margin among the formally pre-employed). Controls in Panel B add \emph{edad} and \emph{mujer}\(\times\)\emph{edad}; in Panel C add \emph{pre\_wage} and \emph{mujer}\(\times\)\emph{pre\_wage} (\emph{pre\_employed} omitted as it is constant within sample). \(\beta_M\) is the coefficient on \emph{receptor}; \(\delta\) is the coefficient on \emph{mujer}\(\times\)\emph{receptor}; \(\beta_W = \beta_M + \delta\) (via \emph{lincom}). p-value tests H\(_0\): \(\delta = 0\) (asymptotic normal, two-sided). Column (3) outcome: share of months employed in [fecha\_sorteo + `k_months', Dec 2025]. First-stage F is the joint Kleibergen-Paap rk Wald statistic. SE clustered at person level (in parentheses).}" _n
+file write fh "\multicolumn{4}{l}{\scriptsize \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}" _n
 file write fh "\end{tabular}" _n
 file write fh "\end{table}" _n
 
 file close fh
 
-di as text "  table_het_compact.tex saved"
+di as text "  table_het_gender.tex saved"
 
 
 /*==============================================================================
-  STEP 10: APPENDIX — CREDIT TYPE × COHORT YEAR
+  STEP 5d: COMBINED MAIN TABLE — Pooled IV + Gender heterogeneity
 
-  Rows: credit types (DU, Construcción, Lotes).
-  Columns: cohort years (2020–2023).
-  4 panels: Formal Emp, Monotributo, Any Work, Log Wage|Emp.
-  IV/2SLS with full controls only.
-  table_het_type_year.tex — Appendix
+  Two output tables (3 outcomes, order: Formal Emp / Emp Share / Mono):
+
+    table_main.tex       — 2 specs as columns (no ctl, age)        (paper body)
+    table_main_full.tex  — 1 column per outcome (full controls)    (appendix)
+
+  Rows: Receptor (pooled), β_M (Men), β_W (Women), p-val (H₀: δ=0).
+  Diagnostics: Control mean (pooled), N (pooled), N (pre-emp), F-stat,
+  Controls for age (✓ in the agectl column for the main table).
+
+  Pooled and gender use DIFFERENT samples (pooled = full; gender = pre-emp).
+  No δ row reported (per Franco's instruction).
 ==============================================================================*/
 
-di as text _n "=== STEP 10: Credit type × cohort year (appendix) ===" _n
+di as text _n "=== STEP 5d: Combined main table (pooled + gender) ===" _n
 
 use "$temp/cross_section_v2.dta", clear
 
-local controls "edad pre_employed pre_wage mujer"
+* --- Re-generate interaction vars + sorteo_fe_g (lost on `use ... clear`) ---
+cap drop muj_x_rec muj_x_gan muj_x_edad muj_x_pre_wage sorteo_fe_g
+gen muj_x_rec      = mujer * receptor
+gen muj_x_gan      = mujer * ganador
+gen muj_x_edad     = mujer * edad
+gen muj_x_pre_wage = mujer * pre_wage
+egen sorteo_fe_g = group(sorteo_fe mujer)
+
+* --- Outcome list ---
+local outcomes "employed emp_share_`k_label' is_monotributo"
+
+foreach table_kind in "main" "full" {
+    if "`table_kind'" == "main" {
+        local specs_to_run "noctl agectl"
+        local n_specs = 2
+        local out_file "$tables/table_main.tex"
+        local table_caption "Main Effects and Gender Heterogeneity"
+        local table_label "tab:main"
+    }
+    else {
+        local specs_to_run "ctl"
+        local n_specs = 1
+        local out_file "$tables/table_main_full.tex"
+        local table_caption "Main Effects and Gender Heterogeneity (Full Controls)"
+        local table_label "tab:main_full"
+    }
+
+    * --- Run all regressions, store in locals (b_pool_<j>_<k>, etc.) ---
+    forvalues j = 1/3 {
+        local outc : word `j' of `outcomes'
+
+        local k = 0
+        foreach spec in `specs_to_run' {
+            local ++k
+
+            if "`spec'" == "noctl" {
+                local ctl_pool   ""
+                local ctl_gender ""
+            }
+            else if "`spec'" == "agectl" {
+                local ctl_pool   "edad"
+                local ctl_gender "edad muj_x_edad"
+            }
+            else if "`spec'" == "ctl" {
+                local ctl_pool   "edad pre_employed pre_wage mujer"
+                local ctl_gender "edad pre_wage muj_x_edad muj_x_pre_wage"
+            }
+
+            di as text _n(2) "===== Outcome=`outc'  Spec=`spec' =====" _n
+
+            * Pooled IV: full sample
+            ivreghdfe `outc' `ctl_pool' (receptor = ganador), ///
+                absorb(sorteo_fe) cluster(id_anon)
+            local b_pool_`j'_`k'  = _b[receptor]
+            local se_pool_`j'_`k' = _se[receptor]
+            local n_pool_`j'_`k'  = e(N)
+            local F_pool_`j'_`k'  = e(widstat)
+            quietly sum `outc' if ganador == 0
+            local cm_pool_`j'_`k' = r(mean)
+
+            * Gender IV: restricted to pre_employed == 1
+            ivreghdfe `outc' `ctl_gender' ///
+                (receptor muj_x_rec = ganador muj_x_gan) if pre_employed == 1, ///
+                absorb(sorteo_fe_g) cluster(id_anon)
+            local b_M_`j'_`k'  = _b[receptor]
+            local se_M_`j'_`k' = _se[receptor]
+            local b_d_`j'_`k'  = _b[muj_x_rec]
+            local se_d_`j'_`k' = _se[muj_x_rec]
+            local n_gen_`j'_`k' = e(N)
+
+            lincom receptor + muj_x_rec
+            local b_W_`j'_`k'  = r(estimate)
+            local se_W_`j'_`k' = r(se)
+
+            local t_d = abs(`b_d_`j'_`k''/`se_d_`j'_`k'')
+            local p_d_`j'_`k' = 2 * (1 - normal(`t_d'))
+        }
+    }
+
+    * --- Open file and write header ---
+    capture file close fh
+    file open fh using "`out_file'", write replace
+
+    file write fh "\begin{table}[H]\centering" _n
+    file write fh "\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}" _n
+    file write fh "\caption{`table_caption'}" _n
+    file write fh "\label{`table_label'}" _n
+    file write fh "\scriptsize" _n
+    file write fh "\setlength{\tabcolsep}{0pt}" _n
+
+    if "`table_kind'" == "main" {
+        file write fh "\begin{tabular}{@{}l*{6}{>{\centering\arraybackslash}p{0.115\textwidth}}@{}}" _n
+        file write fh "\hline\hline" _n
+        file write fh " & \multicolumn{2}{c}{Formal Emp} & \multicolumn{2}{c}{Emp Share (`k_months'm+)} & \multicolumn{2}{c}{Monotributo} \\" _n
+        file write fh "\cline{2-3}\cline{4-5}\cline{6-7}" _n
+        file write fh " & (1) & (2) & (3) & (4) & (5) & (6) \\" _n
+    }
+    else {
+        file write fh "\begin{tabular}{@{}l*{3}{>{\centering\arraybackslash}p{0.18\textwidth}}@{}}" _n
+        file write fh "\hline\hline" _n
+        file write fh " & Formal Emp & Emp Share (`k_months'm+) & Monotributo \\" _n
+        file write fh " & (1) & (2) & (3) \\" _n
+    }
+    file write fh "\hline" _n
+
+    * --- Row: Receptor (pooled) ---
+    file write fh "Receptor (pooled)"
+    forvalues j = 1/3 {
+        forvalues k = 1/`n_specs' {
+            local b : display %9.4f `b_pool_`j'_`k''
+            local t = abs(`b_pool_`j'_`k''/`se_pool_`j'_`k'')
+            if `t' > 2.576      local s "\sym{***}"
+            else if `t' > 1.960 local s "\sym{**}"
+            else if `t' > 1.645 local s "\sym{*}"
+            else                local s ""
+            file write fh " & `b'`s'"
+        }
+    }
+    file write fh " \\" _n
+    file write fh "    "
+    forvalues j = 1/3 {
+        forvalues k = 1/`n_specs' {
+            local se : display %9.4f `se_pool_`j'_`k''
+            file write fh " & (`se')"
+        }
+    }
+    file write fh " \\[0.3em]" _n
+
+    * --- Row: β_M ---
+    file write fh "\(\beta_M\) (Men)"
+    forvalues j = 1/3 {
+        forvalues k = 1/`n_specs' {
+            local b : display %9.4f `b_M_`j'_`k''
+            local t = abs(`b_M_`j'_`k''/`se_M_`j'_`k'')
+            if `t' > 2.576      local s "\sym{***}"
+            else if `t' > 1.960 local s "\sym{**}"
+            else if `t' > 1.645 local s "\sym{*}"
+            else                local s ""
+            file write fh " & `b'`s'"
+        }
+    }
+    file write fh " \\" _n
+    file write fh "    "
+    forvalues j = 1/3 {
+        forvalues k = 1/`n_specs' {
+            local se : display %9.4f `se_M_`j'_`k''
+            file write fh " & (`se')"
+        }
+    }
+    file write fh " \\[0.2em]" _n
+
+    * --- Row: β_W ---
+    file write fh "\(\beta_W\) (Women)"
+    forvalues j = 1/3 {
+        forvalues k = 1/`n_specs' {
+            local b : display %9.4f `b_W_`j'_`k''
+            local t = abs(`b_W_`j'_`k''/`se_W_`j'_`k'')
+            if `t' > 2.576      local s "\sym{***}"
+            else if `t' > 1.960 local s "\sym{**}"
+            else if `t' > 1.645 local s "\sym{*}"
+            else                local s ""
+            file write fh " & `b'`s'"
+        }
+    }
+    file write fh " \\" _n
+    file write fh "    "
+    forvalues j = 1/3 {
+        forvalues k = 1/`n_specs' {
+            local se : display %9.4f `se_W_`j'_`k''
+            file write fh " & (`se')"
+        }
+    }
+    file write fh " \\[0.2em]" _n
+
+    * --- Row: p-val ---
+    file write fh "p-val (H\(_0\): \(\delta = 0\))"
+    forvalues j = 1/3 {
+        forvalues k = 1/`n_specs' {
+            local p : display %5.3f `p_d_`j'_`k''
+            file write fh " & `p'"
+        }
+    }
+    file write fh " \\" _n
+
+    file write fh "\hline" _n
+
+    * --- Diagnostics ---
+    file write fh "Control mean (pooled)"
+    forvalues j = 1/3 {
+        forvalues k = 1/`n_specs' {
+            local cm : display %5.3f `cm_pool_`j'_`k''
+            file write fh " & `cm'"
+        }
+    }
+    file write fh " \\" _n
+
+    file write fh "N (pooled)"
+    forvalues j = 1/3 {
+        forvalues k = 1/`n_specs' {
+            local n : display %12.0fc `n_pool_`j'_`k''
+            file write fh " & `=strtrim("`n'")'"
+        }
+    }
+    file write fh " \\" _n
+
+    file write fh "N (pre-emp, gender)"
+    forvalues j = 1/3 {
+        forvalues k = 1/`n_specs' {
+            local n : display %12.0fc `n_gen_`j'_`k''
+            file write fh " & `=strtrim("`n'")'"
+        }
+    }
+    file write fh " \\" _n
+
+    file write fh "First-stage F (pooled)"
+    forvalues j = 1/3 {
+        forvalues k = 1/`n_specs' {
+            local f : display %9.1f `F_pool_`j'_`k''
+            file write fh " & `f'"
+        }
+    }
+    file write fh " \\" _n
+
+    if "`table_kind'" == "main" {
+        * --- Row: Controls for age (only in the agectl columns) ---
+        file write fh "Controls for age"
+        forvalues j = 1/3 {
+            forvalues k = 1/`n_specs' {
+                local spec_name : word `k' of `specs_to_run'
+                if "`spec_name'" == "agectl" {
+                    file write fh " & \checkmark"
+                }
+                else {
+                    file write fh " &"
+                }
+            }
+        }
+        file write fh " \\" _n
+    }
+
+    * --- Footer ---
+    file write fh "\hline\hline" _n
+    file write fh "\end{tabular}" _n
+    file write fh "\par\smallskip" _n
+    file write fh "\begin{minipage}{0.95\textwidth}" _n
+    file write fh "\scriptsize" _n
+    if "`table_kind'" == "main" {
+        file write fh "IV/2SLS. Instrument: \emph{ganador}. SE clustered at person level (in parentheses). \textbf{Receptor (pooled)} estimated on the FULL sample with sorteo FE; \(\beta_M\), \(\beta_W\) estimated on the \emph{pre\_employed == 1} sub-sample with sorteo \(\times\) mujer FE (interaction IV), \(\beta_W = \beta_M + \delta\) via \emph{lincom}. p-value tests H\(_0\): \(\delta = 0\) (asymptotic normal, two-sided). Cols (2)/(4)/(6) add \emph{edad} as control (and \emph{mujer}\(\times\)\emph{edad} for gender rows). Columns (3)/(4) outcome: share of months employed in [fecha\_sorteo + `k_months', Dec 2025].\\" _n
+    }
+    else {
+        file write fh "IV/2SLS, full controls. Instrument: \emph{ganador}. SE clustered at person level (in parentheses). \textbf{Receptor (pooled)} on the FULL sample with sorteo FE and controls \emph{edad, pre\_employed, pre\_wage, mujer}; \(\beta_M\), \(\beta_W\) on the \emph{pre\_employed == 1} sub-sample with sorteo \(\times\) mujer FE and controls \emph{edad, pre\_wage} and their \emph{mujer}\(\times\) interactions; \(\beta_W = \beta_M + \delta\) via \emph{lincom}. p-value tests H\(_0\): \(\delta = 0\). Column (2) outcome: share of months employed in [fecha\_sorteo + `k_months', Dec 2025].\\" _n
+    }
+    file write fh "\sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)" _n
+    file write fh "\end{minipage}" _n
+    file write fh "\end{table}" _n
+
+    file close fh
+
+    di as text "  `out_file' saved"
+}
+
+
+/*==============================================================================
+  STEP 6: HETEROGENEITY BY CREDIT TYPE — IV only (3 specs as panels)
+
+  Single table: outcomes in columns, credit types in rows.
+  Outcomes: Formal Emp, Monotributo, Emp Share (k+).
+  IV/2SLS, 3 specs (no controls / age only / full). table_het_type.tex
+==============================================================================*/
+
+di as text _n "=== STEP 6: Heterogeneity by Credit Type (3 specs) ===" _n
+
+use "$temp/cross_section_v2.dta", clear
 
 capture file close fh
-file open fh using "$tables/table_het_type_year.tex", write replace
+file open fh using "$tables/table_het_type.tex", write replace
+
+file write fh "\begin{table}[H]\centering" _n
+file write fh "\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}" _n
+file write fh "\caption{Heterogeneity by Credit Type: IV Estimates}" _n
+file write fh "\label{tab:het_type}" _n
+file write fh "\scriptsize" _n
+file write fh "\setlength{\tabcolsep}{0pt}" _n
+file write fh "\begin{tabular}{@{}l*{3}{>{\centering\arraybackslash}p{0.19\textwidth}}@{}}" _n
+file write fh "\hline\hline" _n
+file write fh " & Formal Emp & Monotributo & Emp Share (`k_months'm+) \\" _n
+file write fh " & (1) & (2) & (3) \\" _n
+
+foreach spec in "agectl" "ctl" {
+    if "`spec'" == "agectl" {
+        local ctl_use "edad"
+        local panel_label "Panel A: Age Only"
+    }
+    else if "`spec'" == "ctl" {
+        local ctl_use "edad pre_employed pre_wage mujer"
+        local panel_label "Panel B: Full Controls"
+    }
+
+    di as text _n(2) "===== SPEC: `spec' =====" _n
+
+    file write fh "\hline" _n
+    file write fh "\multicolumn{4}{l}{\textit{`panel_label'}} \\" _n
+    file write fh "\hline" _n
+
+    local grp_num = 0
+    foreach grp_name in "DU" "Construcci\'{o}n" "Lotes" {
+        local ++grp_num
+
+        ivreghdfe employed `ctl_use' (receptor = ganador) ///
+            if tipo_grupo == `grp_num', absorb(sorteo_fe) cluster(id_anon)
+        local b1 = _b[receptor]
+        local se1 = _se[receptor]
+        local n1 = e(N)
+        quietly sum employed if ganador == 0 & tipo_grupo == `grp_num'
+        local cm1 = r(mean)
+
+        ivreghdfe is_monotributo `ctl_use' (receptor = ganador) ///
+            if tipo_grupo == `grp_num', absorb(sorteo_fe) cluster(id_anon)
+        local b2 = _b[receptor]
+        local se2 = _se[receptor]
+        quietly sum is_monotributo if ganador == 0 & tipo_grupo == `grp_num'
+        local cm2 = r(mean)
+
+        ivreghdfe emp_share_`k_label' `ctl_use' (receptor = ganador) ///
+            if tipo_grupo == `grp_num', absorb(sorteo_fe) cluster(id_anon)
+        local b3 = _b[receptor]
+        local se3 = _se[receptor]
+        quietly sum emp_share_`k_label' if ganador == 0 & tipo_grupo == `grp_num'
+        local cm3 = r(mean)
+
+        forvalues j = 1/3 {
+            local t = abs(`b`j''/`se`j'')
+            if `t' > 2.576      local star`j' "\sym{***}"
+            else if `t' > 1.960 local star`j' "\sym{**}"
+            else if `t' > 1.645 local star`j' "\sym{*}"
+            else                local star`j' ""
+            local b`j's: display %9.4f `b`j''
+            local se`j's: display %9.4f `se`j''
+            local cm`j's: display %5.3f `cm`j''
+        }
+        local n1s: display %12.0fc `n1'
+
+        file write fh "`grp_name' & `b1s'`star1' & `b2s'`star2' & `b3s'`star3'\\" _n
+        file write fh "       & (`se1s') & (`se2s') & (`se3s')\\" _n
+        file write fh "       & [`cm1s'; N=`=strtrim("`n1s'")'] & [`cm2s'] & [`cm3s']\\" _n
+
+        if `grp_num' < 3 file write fh "[0.3em]" _n
+    }
+}
+
+file write fh "\hline\hline" _n
+file write fh "\end{tabular}" _n
+file write fh "\par\smallskip" _n
+file write fh "\begin{minipage}{0.92\textwidth}" _n
+file write fh "\scriptsize" _n
+file write fh "IV/2SLS. Instrument: \emph{ganador}. SE clustered at person level (in parentheses). Control means and N in brackets. Panel A adds \emph{edad}; Panel B adds \emph{edad, pre\_employed, pre\_wage, mujer}. Column (3) outcome: share of months employed in [fecha\_sorteo + `k_months', Dec 2025]. Sorteo FE absorbed.\\" _n
+file write fh "\sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)" _n
+file write fh "\end{minipage}" _n
+file write fh "\end{table}" _n
+
+file close fh
+
+di as text "  table_het_type.tex saved"
+
+
+/*==============================================================================
+  STEP 7: HETEROGENEITY BY COHORT YEAR — IV only (3 specs as panels)
+
+  Single table: outcomes in columns, cohort years in rows.
+  Outcomes: Formal Emp, Monotributo, Emp Share (k+).
+  IV/2SLS, 3 specs (no controls / age only / full). table_het_cohort.tex
+==============================================================================*/
+
+di as text _n "=== STEP 7: Heterogeneity by Cohort Year (3 specs) ===" _n
+
+use "$temp/cross_section_v2.dta", clear
+
+capture file close fh
+file open fh using "$tables/table_het_cohort.tex", write replace
+
+file write fh "\begin{table}[H]\centering" _n
+file write fh "\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}" _n
+file write fh "\caption{Heterogeneity by Cohort Year: IV Estimates}" _n
+file write fh "\label{tab:het_cohort}" _n
+file write fh "\scriptsize" _n
+file write fh "\setlength{\tabcolsep}{0pt}" _n
+file write fh "\begin{tabular}{@{}l*{3}{>{\centering\arraybackslash}p{0.19\textwidth}}@{}}" _n
+file write fh "\hline\hline" _n
+file write fh " & Formal Emp & Monotributo & Emp Share (`k_months'm+) \\" _n
+file write fh " & (1) & (2) & (3) \\" _n
+
+foreach spec in "agectl" "ctl" {
+    if "`spec'" == "agectl" {
+        local ctl_use "edad"
+        local panel_label "Panel A: Age Only"
+    }
+    else if "`spec'" == "ctl" {
+        local ctl_use "edad pre_employed pre_wage mujer"
+        local panel_label "Panel B: Full Controls"
+    }
+
+    di as text _n(2) "===== SPEC: `spec' =====" _n
+
+    file write fh "\hline" _n
+    file write fh "\multicolumn{4}{l}{\textit{`panel_label'}} \\" _n
+    file write fh "\hline" _n
+
+    forvalues y = 2020/2023 {
+
+        ivreghdfe employed `ctl_use' (receptor = ganador) ///
+            if cohort_year == `y', absorb(sorteo_fe) cluster(id_anon)
+        local b1 = _b[receptor]
+        local se1 = _se[receptor]
+        local n1 = e(N)
+        quietly sum employed if ganador == 0 & cohort_year == `y'
+        local cm1 = r(mean)
+
+        ivreghdfe is_monotributo `ctl_use' (receptor = ganador) ///
+            if cohort_year == `y', absorb(sorteo_fe) cluster(id_anon)
+        local b2 = _b[receptor]
+        local se2 = _se[receptor]
+        quietly sum is_monotributo if ganador == 0 & cohort_year == `y'
+        local cm2 = r(mean)
+
+        ivreghdfe emp_share_`k_label' `ctl_use' (receptor = ganador) ///
+            if cohort_year == `y', absorb(sorteo_fe) cluster(id_anon)
+        local b3 = _b[receptor]
+        local se3 = _se[receptor]
+        quietly sum emp_share_`k_label' if ganador == 0 & cohort_year == `y'
+        local cm3 = r(mean)
+
+        forvalues j = 1/3 {
+            local t = abs(`b`j''/`se`j'')
+            if `t' > 2.576      local star`j' "\sym{***}"
+            else if `t' > 1.960 local star`j' "\sym{**}"
+            else if `t' > 1.645 local star`j' "\sym{*}"
+            else                local star`j' ""
+            local b`j's: display %9.4f `b`j''
+            local se`j's: display %9.4f `se`j''
+            local cm`j's: display %5.3f `cm`j''
+        }
+        local n1s: display %12.0fc `n1'
+
+        file write fh "`y'    & `b1s'`star1' & `b2s'`star2' & `b3s'`star3'\\" _n
+        file write fh "       & (`se1s') & (`se2s') & (`se3s')\\" _n
+
+        if `y' < 2023 file write fh "[0.3em]" _n
+    }
+}
+
+file write fh "\hline\hline" _n
+file write fh "\end{tabular}" _n
+file write fh "\par\smallskip" _n
+file write fh "\begin{minipage}{0.92\textwidth}" _n
+file write fh "\scriptsize" _n
+file write fh "IV/2SLS. Instrument: \emph{ganador}. SE clustered at person level (in parentheses). Panel A adds \emph{edad}; Panel B adds \emph{edad, pre\_employed, pre\_wage, mujer}. Column (3) outcome: share of months employed in [fecha\_sorteo + `k_months', Dec 2025]. Sorteo FE absorbed.\\" _n
+file write fh "\sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)" _n
+file write fh "\end{minipage}" _n
+file write fh "\end{table}" _n
+
+file close fh
+
+di as text "  table_het_cohort.tex saved"
+
+
+/*==============================================================================
+  STEP 8: HETEROGENEITY BY TYPE × COHORT YEAR — IV only (3 specs as panels)
+
+  Rows: cohort years (2020–2023).
+  Cols: 3 types × 2 outcomes (Formal Emp + Emp Share `k`+) = 6 columns.
+  IV/2SLS, 3 specs (no controls / age only / full). table_het_type_cohort.tex
+==============================================================================*/
+
+di as text _n "=== STEP 8: Heterogeneity by Type × Cohort Year (3 specs) ===" _n
+
+use "$temp/cross_section_v2.dta", clear
+
+capture file close fh
+file open fh using "$tables/table_het_type_cohort.tex", write replace
 
 file write fh "\begin{table}[H]\centering" _n
 file write fh "\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}" _n
 file write fh "\caption{Heterogeneity by Credit Type and Cohort Year: IV Estimates}" _n
-file write fh "\label{tab:het_type_year}" _n
+file write fh "\label{tab:het_type_cohort}" _n
 file write fh "\scriptsize" _n
-file write fh "\begin{tabular}{@{}lcccccc@{}}" _n
+file write fh "\setlength{\tabcolsep}{0pt}" _n
+file write fh "\begin{tabular*}{0.95\textwidth}{@{\extracolsep{\fill}}lcccccc@{}}" _n
 file write fh "\hline\hline" _n
 file write fh " & \multicolumn{2}{c}{DU} & \multicolumn{2}{c}{Construcci\'{o}n} & \multicolumn{2}{c}{Lotes} \\" _n
 file write fh "\cline{2-3}\cline{4-5}\cline{6-7}" _n
-file write fh " & Formal Emp & Log Wage & Formal Emp & Log Wage & Formal Emp & Log Wage \\" _n
+file write fh " & Formal Emp & Emp Share & Formal Emp & Emp Share & Formal Emp & Emp Share \\" _n
 file write fh " & (1) & (2) & (3) & (4) & (5) & (6) \\" _n
-file write fh "\hline" _n
 
-forvalues y = 2020/2023 {
-
-    * Run 6 regressions: 3 credit types × 2 outcomes
-    local grp_num = 0
-    foreach grp in "du" "con" "lot" {
-        local ++grp_num
-
-        * Formal Employment
-        capture ivreghdfe employed `controls' (receptor = ganador) ///
-            if tipo_grupo == `grp_num' & cohort_year == `y', ///
-            absorb(sorteo_fe) cluster(id_anon)
-        if _rc == 0 {
-            local b_`grp'_e: display %9.4f _b[receptor]
-            local se_`grp'_e: display %9.4f _se[receptor]
-            local t = abs(_b[receptor] / _se[receptor])
-            if `t' > 2.576      local star_`grp'_e "\sym{***}"
-            else if `t' > 1.960 local star_`grp'_e "\sym{**}"
-            else if `t' > 1.645 local star_`grp'_e "\sym{*}"
-            else                local star_`grp'_e ""
-            local ok_`grp'_e = 1
-        }
-        else {
-            local ok_`grp'_e = 0
-        }
-
-        * Log Wage|Emp
-        capture ivreghdfe log_wage `controls' (receptor = ganador) ///
-            if tipo_grupo == `grp_num' & cohort_year == `y' & employed == 1, ///
-            absorb(sorteo_fe) cluster(id_anon)
-        if _rc == 0 {
-            local b_`grp'_w: display %9.4f _b[receptor]
-            local se_`grp'_w: display %9.4f _se[receptor]
-            local t = abs(_b[receptor] / _se[receptor])
-            if `t' > 2.576      local star_`grp'_w "\sym{***}"
-            else if `t' > 1.960 local star_`grp'_w "\sym{**}"
-            else if `t' > 1.645 local star_`grp'_w "\sym{*}"
-            else                local star_`grp'_w ""
-            local ok_`grp'_w = 1
-        }
-        else {
-            local ok_`grp'_w = 0
-        }
+foreach spec in "agectl" "ctl" {
+    if "`spec'" == "agectl" {
+        local ctl_use "edad"
+        local panel_label "Panel A: Age Only"
+    }
+    else if "`spec'" == "ctl" {
+        local ctl_use "edad pre_employed pre_wage mujer"
+        local panel_label "Panel B: Full Controls"
     }
 
-    * Write coefficient row
-    file write fh "`y'"
-    foreach grp in "du" "con" "lot" {
-        foreach oc in "e" "w" {
-            if `ok_`grp'_`oc'' == 1 {
-                file write fh " & `b_`grp'_`oc''`star_`grp'_`oc''"
+    di as text _n(2) "===== SPEC: `spec' =====" _n
+
+    file write fh "\hline" _n
+    file write fh "\multicolumn{7}{l}{\textit{`panel_label'}} \\" _n
+    file write fh "\hline" _n
+
+    forvalues y = 2020/2023 {
+
+        local grp_num = 0
+        foreach grp in "du" "con" "lot" {
+            local ++grp_num
+
+            capture ivreghdfe employed `ctl_use' (receptor = ganador) ///
+                if tipo_grupo == `grp_num' & cohort_year == `y', ///
+                absorb(sorteo_fe) cluster(id_anon)
+            if _rc == 0 {
+                local b_`grp'_e: display %9.4f _b[receptor]
+                local se_`grp'_e: display %9.4f _se[receptor]
+                local t = abs(_b[receptor]/_se[receptor])
+                if `t' > 2.576      local star_`grp'_e "\sym{***}"
+                else if `t' > 1.960 local star_`grp'_e "\sym{**}"
+                else if `t' > 1.645 local star_`grp'_e "\sym{*}"
+                else                local star_`grp'_e ""
+                local ok_`grp'_e = 1
             }
-            else {
-                file write fh " & "
+            else local ok_`grp'_e = 0
+
+            capture ivreghdfe emp_share_`k_label' `ctl_use' (receptor = ganador) ///
+                if tipo_grupo == `grp_num' & cohort_year == `y', ///
+                absorb(sorteo_fe) cluster(id_anon)
+            if _rc == 0 {
+                local b_`grp'_s: display %9.4f _b[receptor]
+                local se_`grp'_s: display %9.4f _se[receptor]
+                local t = abs(_b[receptor]/_se[receptor])
+                if `t' > 2.576      local star_`grp'_s "\sym{***}"
+                else if `t' > 1.960 local star_`grp'_s "\sym{**}"
+                else if `t' > 1.645 local star_`grp'_s "\sym{*}"
+                else                local star_`grp'_s ""
+                local ok_`grp'_s = 1
+            }
+            else local ok_`grp'_s = 0
+        }
+
+        file write fh "`y'"
+        foreach grp in "du" "con" "lot" {
+            foreach oc in "e" "s" {
+                if `ok_`grp'_`oc'' == 1 {
+                    file write fh " & `b_`grp'_`oc''`star_`grp'_`oc''"
+                }
+                else {
+                    file write fh " &"
+                }
             }
         }
-    }
-    file write fh "\\" _n
+        file write fh "\\" _n
 
-    * Write SE row
-    file write fh "       "
-    foreach grp in "du" "con" "lot" {
-        foreach oc in "e" "w" {
-            if `ok_`grp'_`oc'' == 1 {
-                file write fh " & (`se_`grp'_`oc'')"
-            }
-            else {
-                file write fh " & "
+        file write fh "    "
+        foreach grp in "du" "con" "lot" {
+            foreach oc in "e" "s" {
+                if `ok_`grp'_`oc'' == 1 {
+                    file write fh " & (`se_`grp'_`oc'')"
+                }
+                else {
+                    file write fh " &"
+                }
             }
         }
-    }
-    file write fh "\\" _n
+        file write fh "\\" _n
 
-    if `y' < 2023 file write fh "[0.5em]" _n
+        if `y' < 2023 file write fh "[0.2em]" _n
+    }
 }
 
 file write fh "\hline\hline" _n
-file write fh "\multicolumn{7}{p{0.90\textwidth}}{\scriptsize IV/2SLS with full controls (edad, pre-employment, pre-wage, mujer). Instrument: \emph{ganador}. SE clustered at person level. Log Wage on employed subsample. Sorteo FE absorbed.}" _n
-file write fh "\multicolumn{7}{l}{\scriptsize \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}" _n
-file write fh "\end{tabular}" _n
+file write fh "\end{tabular*}" _n
+file write fh "\par\smallskip" _n
+file write fh "\begin{minipage}{0.90\textwidth}" _n
+file write fh "\scriptsize" _n
+file write fh "IV/2SLS. Instrument: \emph{ganador}. SE clustered at person level (in parentheses). Panel A adds \emph{edad}; Panel B adds \emph{edad, pre\_employed, pre\_wage, mujer}. Emp Share is the share of months employed in [fecha\_sorteo + `k_months', Dec 2025]. Sorteo FE absorbed. Empty cells indicate the regression did not converge or had no observations.\\" _n
+file write fh "\sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)" _n
+file write fh "\end{minipage}" _n
 file write fh "\end{table}" _n
 
 file close fh
 
-di as text "  table_het_type_year.tex saved (appendix)"
+di as text "  table_het_type_cohort.tex saved"
 
 
 /*==============================================================================
@@ -1626,16 +1507,9 @@ di as text "sorteo_fe = group(fecha_sorteo, tipo, desarrollo, tipologia, cupo)"
 di as text "3 control specs: (1) none, (2) age only, (3) all controls (edad+pre-emp+pre-wage+mujer)"
 di as text _n "Tables saved to: $tables/"
 di as text _n "  PAPER TABLES (directly \\input'd):"
-di as text "    table_extensive.tex     — Section 5.1 (9 cols)"
-di as text "    table_intensive.tex     — Section 5.2 (6 cols)"
-di as text _n "  SUPPORTING TABLES (numbers referenced in text):"
-di as text "    table_het_employed.tex  — Section 5.2 (12 cols)"
-di as text "    table10_het_iv_wage.tex — Section 5.2 (12 cols)"
-di as text "    type_du_ext/int.tex     — Section 5.3 (9+6 cols)"
-di as text "    type_construccion_ext/int.tex — Section 5.3 (9+6 cols)"
-di as text "    type_lotes_ext/int.tex  — Section 5.3 (9+6 cols)"
-di as text "    type_du_het_year.tex    — Section 5.2 (12 cols)"
-di as text "    type_du_het_wage_year.tex — Section 5.2 (12 cols)"
-di as text _n "WARNING: Do NOT run procrear_rq2.do after this script."
-di as text "         It overwrites table_extensive.tex and table_intensive.tex"
-di as text "         with a different (person-level, no controls) specification."
+di as text "    table_extensive.tex            — Section 5.1 (9 cols)"
+di as text "    table_emp_share_`k_label'.tex     — Section 5.2 (post-`k_months'm emp share)"
+di as text "    table_het_gender.tex           — gender heterogeneity (interaction IV)"
+di as text "    table_het_type.tex             — heterogeneity by credit type (IV)"
+di as text "    table_het_cohort.tex           — heterogeneity by cohort year (IV)"
+di as text "    table_het_type_cohort.tex      — heterogeneity by type × cohort (IV)"
