@@ -4,24 +4,27 @@
   Self-contained: builds all datasets from raw DATA/ files.
 
   Runs the same ITT analysis (matching paper_labor_outcomes.do spec) on
-  THREE sorteos:
+  TWO placebos:
 
-    1. nov23     — Nov 23, 2023 (any tipo). Credits NEVER disbursed
-                   (Banco Hipotecario was frozen). receptor = 0 for ALL.
-                   Pure placebo: first stage should be ≈ 0.
-                   ITT should be ≈ 0 if exclusion restriction holds.
+    1. sagol      — Nov 23, 2023 SAGOL II sorteo (any tipo). Credits
+                    NEVER disbursed (Banco Hipotecario was frozen).
+                    receptor = 0 for ALL. Sharp placebo identified off
+                    a single, well-documented lottery round.
 
-    2. sep26_du  — Sep 26, 2023 (tipo == 5, i.e. DU). Credits disbursed.
-                   First stage > 0. ITT should match main paper magnitude.
+    2. zero_recep — ALL sorteo_fe groups where no winner ultimately
+                    took up credit (sum(receptor) over the sorteo_fe
+                    group equals zero). Includes SAGOL II plus every
+                    other lottery group whose winners failed the
+                    post-lottery eligibility check or otherwise did
+                    not draw down the credit. ITT identified off
+                    within-sorteo_fe variation in winning, just like
+                    the main paper, but on lottery groups where the
+                    first stage is mechanically zero.
 
-    3. dec4_du   — Dec 4, 2023 (tipo == 5, i.e. DU). Credits disbursed.
-                   First stage > 0. ITT should match main paper magnitude.
-
-  The two DU sorteos in 2023 are temporally close to the Nov 23 placebo
-  and serve as a positive control: same window, same era, same DU type,
-  but disbursement actually happened. Comparing ITT across these three
-  validates that the placebo's null is due to non-disbursement, not the
-  era or sample composition.
+  Both placebos test the exclusion restriction: if winning the lottery
+  affects outcomes only through credit receipt, the reduced-form ITT
+  should be statistically indistinguishable from zero on labor,
+  financial and fertility outcomes.
 
   Each placebo run produces FIVE tables, sharing the same structure as
   paper_labor_outcomes.do, paper_bcra_combined_age.do and
@@ -32,16 +35,15 @@
     placebo_bcra<sfx>.tex          — ITT on 7 BCRA outcomes (age control)
     placebo_hijos<sfx>.tex         — ITT on n_kids_post (3 specs)
 
-  Plus four cross-lottery combined tables in the robustness section:
-    placebo_fs_combined.tex        — 3 first stages side by side
-    placebo_itt_combined.tex       — 3 labor ITTs side by side
-    placebo_bcra_combined.tex      — 3 BCRA ITTs side by side
-    placebo_hijos_combined.tex     — 3 fertility ITTs side by side
+  Plus four cross-placebo combined tables in the robustness section:
+    placebo_fs_combined.tex        — 2 first stages side by side
+    placebo_itt_combined.tex       — 2 labor ITTs side by side
+    placebo_bcra_combined.tex      — 2 BCRA ITTs side by side
+    placebo_hijos_combined.tex     — 2 fertility ITTs side by side
 
-  Sufixes:
-    nov23     → no suffix (`placebo_first_stage.tex`)
-    sep26_du  → `_sep26_du`
-    dec4_du   → `_dec4_du`
+  Suffixes:
+    sagol      → `_sagol`
+    zero_recep → `_zero_recep`
 
   BCRA outcomes (matching paper_bcra_combined_age.do):
     Total Debt, Slow Payer, Banked  — all-entities sample
@@ -184,32 +186,27 @@ di as text "    _plac_proc_kids_panel saved: " _N " rows"
 
 
 /*==============================================================================
-  PLACEBO LOOP — for each of nov23 / sep26_du / dec4_du, run steps 2-5
+  PLACEBO LOOP — for each of sagol / zero_recep, run steps 2-5
 ==============================================================================*/
 
-foreach placebo_id in "nov23" "sep26_du" "dec4_du" {
+foreach placebo_id in "sagol" "zero_recep" {
 
     * --- Per-placebo configuration ---
-    if "`placebo_id'" == "nov23" {
+    if "`placebo_id'" == "sagol" {
+        local filter_kind "date"
         local filter "_month == 11 & _day == 23"
-        local out_sfx ""
-        local caption_id "Nov 23 2023 Sorteo, No Credit Disbursed"
+        local out_sfx "_sagol"
+        local caption_id "SAGOL II (Nov 23 2023), No Credit Disbursed"
         local fs_note "credits never disbursed, so \emph{receptor} = 0 for everyone"
         local fs_expected "The coefficient should be \(\approx\) 0 by construction"
     }
-    else if "`placebo_id'" == "sep26_du" {
-        local filter "_month == 9 & _day == 26 & tipo == 5"
-        local out_sfx "_sep26_du"
-        local caption_id "Sep 26 2023 Sorteo (DU only, Comparison)"
-        local fs_note "credits disbursed (DU sorteo from Sep 26 2023)"
-        local fs_expected "The coefficient should match the main sample's \(\approx\) 0.34"
-    }
-    else if "`placebo_id'" == "dec4_du" {
-        local filter "_month == 12 & _day == 4 & tipo == 5"
-        local out_sfx "_dec4_du"
-        local caption_id "Dec 4 2023 Sorteo (DU only, Comparison)"
-        local fs_note "credits disbursed (DU sorteo from Dec 4 2023)"
-        local fs_expected "The coefficient should match the main sample's \(\approx\) 0.34"
+    else if "`placebo_id'" == "zero_recep" {
+        local filter_kind "zero_recep"
+        local filter ""
+        local out_sfx "_zero_recep"
+        local caption_id "All Lottery Groups with Zero Take-up"
+        local fs_note "all sorteo\_fe groups where no winner took up credit, so \emph{receptor} = 0 for everyone"
+        local fs_expected "The coefficient should be \(\approx\) 0 by construction"
     }
 
     di as text _n(3) "================================================================"
@@ -262,14 +259,24 @@ foreach placebo_id in "nov23" "sep26_du" "dec4_du" {
     gen byte is_monotributo = (monotributo > 0 & monotributo != .)
 
     * --- Filter ---
-    gen _day = day(fecha_sorteo)
-    gen _month = month(fecha_sorteo)
-
-    keep if `filter'
-    drop _day _month
+    if "`filter_kind'" == "date" {
+        gen _day = day(fecha_sorteo)
+        gen _month = month(fecha_sorteo)
+        keep if `filter'
+        drop _day _month
+    }
+    else if "`filter_kind'" == "zero_recep" {
+        bys sorteo_fe: egen _n_recep = total(receptor)
+        keep if _n_recep == 0
+        drop _n_recep
+    }
+    else {
+        di as error "ERROR: unknown filter_kind '`filter_kind'' for `placebo_id'."
+        error 2001
+    }
 
     if _N == 0 {
-        di as error "ERROR: No sorteos for placebo `placebo_id' (filter: `filter')."
+        di as error "ERROR: No sorteos for placebo `placebo_id' (filter_kind: `filter_kind')."
         error 2000
     }
 
@@ -1125,7 +1132,7 @@ foreach placebo_id in "nov23" "sep26_du" "dec4_du" {
     file write fh "\par\smallskip" _n
     file write fh "\begin{minipage}{0.95\textwidth}" _n
     file write fh "\scriptsize" _n
-    file write fh "OLS (ITT, reduced form). Sample: `caption_id'. Outcome: number of children born strictly after the lottery year (\(n\_kids\_post = n\_kids\_2024 - n\_kids\_at\_sorteo\)), computed from the civil-registry of births aggregated to a CUIL \(\times\) calendar-year cumulative-children panel. Because all three placebos are 2023 sorteos, the outcome is observed over a single calendar year (2024). Lottery FE absorbed; SE clustered at person level (parentheses).\\" _n
+    file write fh "OLS (ITT, reduced form). Sample: `caption_id'. Outcome: number of children born strictly after the lottery year (\(n\_kids\_post = n\_kids\_2024 - n\_kids\_at\_sorteo\)), computed from the civil-registry of births aggregated to a CUIL \(\times\) calendar-year cumulative-children panel. The outcome window varies by lottery year (one calendar year for 2023 sorteos; up to four for earlier sorteos). Lottery FE absorbed; SE clustered at person level (parentheses).\\" _n
     file write fh "\sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)" _n
     file write fh "\end{minipage}" _n
     file write fh "\end{table}" _n
@@ -1160,20 +1167,20 @@ file open fh using "$tables/placebo_fs_combined.tex", write replace
 
 file write fh "\begin{table}[H]\centering" _n
 file write fh "\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}" _n
-file write fh "\caption{First Stage Comparison Across Three Lotteries}" _n
+file write fh "\caption{First Stage Comparison Across Two Placebos}" _n
 file write fh "\label{tab:placebo_fs_combined}" _n
 file write fh "\scriptsize" _n
 file write fh "\setlength{\tabcolsep}{0pt}" _n
-file write fh "\begin{tabular}{@{}l*{3}{>{\centering\arraybackslash}p{0.20\textwidth}}@{}}" _n
+file write fh "\begin{tabular}{@{}l*{2}{>{\centering\arraybackslash}p{0.25\textwidth}}@{}}" _n
 file write fh "\hline\hline" _n
-file write fh " & Nov 23 (placebo) & Sep 26 & Dec 4 \\" _n
-file write fh " & (1) & (2) & (3) \\" _n
+file write fh " & SAGOL II & Zero Take-up \\" _n
+file write fh " & (1) & (2) \\" _n
 file write fh "\hline" _n
 
 * coefficient row + stars
-local fs_row "Ganador"
+local fs_row "Winner"
 local fs_serow ""
-foreach pid in "nov23" "sep26_du" "dec4_du" {
+foreach pid in "sagol" "zero_recep" {
     local b  = `fs_b_`pid''
     local se = `fs_se_`pid''
     local stars ""
@@ -1196,7 +1203,7 @@ file write fh "\hline" _n
 local cm_row "Control mean (losers)"
 local F_row  "F-statistic"
 local N_row  "Observations"
-foreach pid in "nov23" "sep26_du" "dec4_du" {
+foreach pid in "sagol" "zero_recep" {
     local cm_str = string(`fs_cm_`pid'', "%9.4f")
     local N_str  = string(`fs_N_`pid'',  "%9.0fc")
     local cm_row "`cm_row' & `cm_str'"
@@ -1217,7 +1224,7 @@ file write fh "\end{tabular}" _n
 file write fh "\par\smallskip" _n
 file write fh "\begin{minipage}{0.85\textwidth}" _n
 file write fh "\scriptsize" _n
-file write fh "OLS first stage. Outcome: \emph{recipient} (= 1 if applicant received PROCREAR credit). Three contemporaneous 2023 lotteries: Nov 23 (any type, credits never disbursed); Sep 26 (DU only); Dec 4 (DU only). The Nov 23 lottery coefficient is mechanically 0 because no credits were disbursed. The other two should match the main-sample first stage of \(\approx\) 0.34. No additional controls; lottery FE absorbed; SE clustered at person level.\\" _n
+file write fh "OLS first stage. Outcome: \emph{recipient} (= 1 if applicant received PROCREAR credit). Two placebos: SAGOL II (Nov 23 2023 sorteo, any type, credits never disbursed) and Zero Take-up (all sorteo\_fe groups whose winners did not draw down credit). Both coefficients are mechanically 0 because no credit was disbursed within these sample restrictions. No additional controls; lottery FE absorbed; SE clustered at person level.\\" _n
 file write fh "\sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)" _n
 file write fh "\end{minipage}" _n
 file write fh "\end{table}" _n
@@ -1233,28 +1240,28 @@ file open fh using "$tables/placebo_itt_combined.tex", write replace
 
 file write fh "\begin{table}[H]\centering" _n
 file write fh "\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}" _n
-file write fh "\caption{ITT Comparison Across Three Lotteries (Pooled)}" _n
+file write fh "\caption{Labor ITT Comparison Across Two Placebos (Pooled)}" _n
 file write fh "\label{tab:placebo_itt_combined}" _n
 file write fh "\scriptsize" _n
 file write fh "\setlength{\tabcolsep}{0pt}" _n
-file write fh "\begin{tabular*}{0.95\textwidth}{@{\extracolsep{\fill}}l*{6}{c}@{}}" _n
+file write fh "\begin{tabular*}{0.95\textwidth}{@{\extracolsep{\fill}}l*{4}{c}@{}}" _n
 file write fh "\hline\hline" _n
-file write fh " & \multicolumn{2}{c}{Nov 23 (placebo)} & \multicolumn{2}{c}{Sep 26} & \multicolumn{2}{c}{Dec 4} \\" _n
-file write fh "\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}" _n
-file write fh " & (1) & (2) & (3) & (4) & (5) & (6) \\" _n
+file write fh " & \multicolumn{2}{c}{SAGOL II} & \multicolumn{2}{c}{Zero Take-up} \\" _n
+file write fh "\cmidrule(lr){2-3}\cmidrule(lr){4-5}" _n
+file write fh " & (1) & (2) & (3) & (4) \\" _n
 file write fh "\hline" _n
 
-local plist "nov23 sep26_du dec4_du"
+local plist "sagol zero_recep"
 
-* Helper: writes a single Ganador row (6 cols: alternating no ctl / age ctl
-* per sorteo). Outcome prefix is `oprefix' (= "emp" or "shr").
+* Helper: writes a single Winner row (4 cols: alternating no ctl / age ctl
+* per placebo). Outcome prefix is `oprefix' (= "emp" or "shr").
 * coefs come from `b_`oprefix'_n_`p'' and `b_`oprefix'_a_`p''.
 
 * --- Panel A: Formal Emp ---
-file write fh "\multicolumn{7}{l}{\textit{Panel A: Formal Emp}} \\" _n
+file write fh "\multicolumn{5}{l}{\textit{Panel A: Formal Emp}} \\" _n
 file write fh "\hline" _n
 
-* coefficient row: 6 values
+* coefficient row: 4 values
 file write fh "Winner"
 foreach p of local plist {
     foreach c in "n" "a" {
@@ -1279,7 +1286,7 @@ file write fh " \\" _n
 file write fh "\hline" _n
 
 * --- Panel B: Emp Share ---
-file write fh "\multicolumn{7}{l}{\textit{Panel B: Emp Share (`k_months'm+)}} \\" _n
+file write fh "\multicolumn{5}{l}{\textit{Panel B: Emp Share (`k_months'm+)}} \\" _n
 file write fh "\hline" _n
 
 file write fh "Winner"
@@ -1305,7 +1312,7 @@ foreach p of local plist {
 file write fh " \\" _n
 file write fh "\hline" _n
 
-* --- Diagnostics: control means + N use multicolumn{2} per sorteo -------- *
+* --- Diagnostics: control means + N use multicolumn{2} per placebo --- *
 file write fh "Control mean (Formal Emp)"
 foreach p of local plist {
     local cm : display %5.3f `cm_emp_`p''
@@ -1327,15 +1334,15 @@ foreach p of local plist {
 }
 file write fh " \\" _n
 
-* Controls-as-column-row (checkmark under even-indexed col per sorteo)
-file write fh "Controls for age & & \checkmark & & \checkmark & & \checkmark \\" _n
+* Controls-as-column row (checkmark under even-indexed col per placebo)
+file write fh "Controls for age & & \checkmark & & \checkmark \\" _n
 
 file write fh "\hline\hline" _n
 file write fh "\end{tabular*}" _n
 file write fh "\par\smallskip" _n
 file write fh "\begin{minipage}{0.95\textwidth}" _n
 file write fh "\scriptsize" _n
-file write fh "OLS (ITT, reduced form). Three contemporaneous 2023 lotteries: Nov 23 (any type, credits never disbursed); Sep 26 (DU only, credits disbursed); Dec 4 (DU only, credits disbursed). Lottery FE absorbed; SE clustered at person level (in parentheses). Panel B outcome: share of months employed in [lottery date + `k_months', Dec 2025].\\" _n
+file write fh "OLS (ITT, reduced form). Two placebos: SAGOL II (Nov 23 2023 sorteo, any type, credits never disbursed); Zero Take-up (all sorteo\_fe groups whose winners did not draw down credit). Lottery FE absorbed; SE clustered at person level (in parentheses). Panel B outcome: share of months employed in [lottery date + `k_months', Dec 2025].\\" _n
 file write fh "\sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)" _n
 file write fh "\end{minipage}" _n
 file write fh "\end{table}" _n
@@ -1356,22 +1363,22 @@ file open fh using "$tables/placebo_bcra_combined.tex", write replace
 
 file write fh "\begin{table}[H]\centering" _n
 file write fh "\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}" _n
-file write fh "\caption{BCRA Outcomes (ITT): Comparison Across Three Lotteries}" _n
+file write fh "\caption{BCRA Outcomes (ITT): Comparison Across Two Placebos}" _n
 file write fh "\label{tab:placebo_bcra_combined}" _n
 file write fh "\scriptsize" _n
 file write fh "\setlength{\tabcolsep}{0pt}" _n
-file write fh "\begin{tabular*}{0.95\textwidth}{@{\extracolsep{\fill}}l*{6}{c}@{}}" _n
+file write fh "\begin{tabular*}{0.95\textwidth}{@{\extracolsep{\fill}}l*{4}{c}@{}}" _n
 file write fh "\hline\hline" _n
-file write fh " & \multicolumn{2}{c}{Nov 23 (placebo)} & \multicolumn{2}{c}{Sep 26} & \multicolumn{2}{c}{Dec 4} \\" _n
-file write fh "\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}" _n
-file write fh " & (1) & (2) & (3) & (4) & (5) & (6) \\" _n
+file write fh " & \multicolumn{2}{c}{SAGOL II} & \multicolumn{2}{c}{Zero Take-up} \\" _n
+file write fh "\cmidrule(lr){2-3}\cmidrule(lr){4-5}" _n
+file write fh " & (1) & (2) & (3) & (4) \\" _n
 file write fh "\hline" _n
 
 local outc_label_1 "Total Debt"
 local outc_label_2 "Slow Payer"
 local outc_label_3 "Banked"
 
-local plist "nov23 sep26_du dec4_du"
+local plist "sagol zero_recep"
 
 * --- Coefficient + SE rows (3 outcomes, each shown in 2 specs: noctl + age) ---
 forvalues j = 1/3 {
@@ -1442,14 +1449,14 @@ foreach p of local plist {
 file write fh " \\" _n
 
 * --- Controls-as-column row ---
-file write fh "Controls for age & & \checkmark & & \checkmark & & \checkmark \\" _n
+file write fh "Controls for age & & \checkmark & & \checkmark \\" _n
 
 file write fh "\hline\hline" _n
 file write fh "\end{tabular*}" _n
 file write fh "\par\smallskip" _n
 file write fh "\begin{minipage}{0.95\textwidth}" _n
 file write fh "\scriptsize" _n
-file write fh "OLS (ITT, reduced form). Three contemporaneous 2023 lotteries: Nov 23 (any type, credits never disbursed); Sep 26 (DU only, credits disbursed); Dec 4 (DU only, credits disbursed). Lottery FE absorbed; SE clustered at person level (parentheses). \emph{Total Debt}: sum of debt outstanding in nominal ARS across BCRA-registered entities at the last period the applicant is observed (zero if before November 2025). \emph{Slow Payer}: indicator equal to one if the applicant had BCRA situation code \(> 1\) (code 2/3/4/5) at any point in the panel; applicants with no BCRA record are coded as 0. \emph{Banked}: indicator for an active credit record at the end of the panel.\\" _n
+file write fh "OLS (ITT, reduced form). Two placebos: SAGOL II (Nov 23 2023 sorteo, any type, credits never disbursed); Zero Take-up (all sorteo\_fe groups whose winners did not draw down credit). Lottery FE absorbed; SE clustered at person level (parentheses). \emph{Total Debt}: sum of debt outstanding in nominal ARS across BCRA-registered entities at the last period the applicant is observed (zero if before November 2025). \emph{Slow Payer}: indicator equal to one if the applicant had BCRA situation code \(> 1\) (code 2/3/4/5) at any point in the panel; applicants with no BCRA record are coded as 0. \emph{Banked}: indicator for an active credit record at the end of the panel.\\" _n
 file write fh "\sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)" _n
 file write fh "\end{minipage}" _n
 file write fh "\end{table}" _n
@@ -1464,66 +1471,74 @@ di as text "  placebo_bcra_combined.tex saved"
 
 di as text _n(2) "=== STEP 8: Combined fertility cross-placebo table ===" _n
 
-local plist "nov23 sep26_du dec4_du"
+local plist "sagol zero_recep"
 
 capture file close fh
 file open fh using "$tables/placebo_hijos_combined.tex", write replace
 
 file write fh "\begin{table}[H]\centering" _n
 file write fh "\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}" _n
-file write fh "\caption{Fertility Outcome (ITT): Comparison Across Three Lotteries}" _n
+file write fh "\caption{Fertility ITT Comparison Across Two Placebos}" _n
 file write fh "\label{tab:placebo_hijos_combined}" _n
 file write fh "\scriptsize" _n
 file write fh "\setlength{\tabcolsep}{0pt}" _n
-file write fh "\begin{tabular}{@{}l*{3}{>{\centering\arraybackslash}p{0.22\textwidth}}@{}}" _n
+file write fh "\begin{tabular*}{0.95\textwidth}{@{\extracolsep{\fill}}l*{4}{c}@{}}" _n
 file write fh "\hline\hline" _n
-file write fh " & Nov 23 (placebo) & Sep 26 & Dec 4 \\" _n
-file write fh " & (1) & (2) & (3) \\" _n
+file write fh " & \multicolumn{2}{c}{SAGOL II} & \multicolumn{2}{c}{Zero Take-up} \\" _n
+file write fh "\cmidrule(lr){2-3}\cmidrule(lr){4-5}" _n
+file write fh " & (1) & (2) & (3) & (4) \\" _n
 file write fh "\hline" _n
 
-* Winner row (primary spec: age + n_kids_pre)
+* Winner row: 4 values (2 placebos x 2 specs: noctl + age)
 file write fh "Winner"
 foreach p of local plist {
-    local b : display %9.4f `hijos_b_p_`p''
-    local t = abs(`hijos_b_p_`p''/`hijos_se_p_`p'')
-    if      `t' > 2.576 local s "\sym{***}"
-    else if `t' > 1.960 local s "\sym{**}"
-    else if `t' > 1.645 local s "\sym{*}"
-    else                local s ""
-    file write fh " & `b'`s'"
+    foreach c in "n" "a" {
+        local b : display %9.4f `hijos_b_`c'_`p''
+        local t = abs(`hijos_b_`c'_`p''/`hijos_se_`c'_`p'')
+        if      `t' > 2.576 local s "\sym{***}"
+        else if `t' > 1.960 local s "\sym{**}"
+        else if `t' > 1.645 local s "\sym{*}"
+        else                local s ""
+        file write fh " & `b'`s'"
+    }
 }
 file write fh " \\" _n
 file write fh "    "
 foreach p of local plist {
-    local se : display %9.4f `hijos_se_p_`p''
-    file write fh " & (`se')"
+    foreach c in "n" "a" {
+        local se : display %9.4f `hijos_se_`c'_`p''
+        file write fh " & (`se')"
+    }
 }
 file write fh " \\" _n
 
 file write fh "\hline" _n
 
-* Control mean
+* Control mean (spans both specs per placebo)
 file write fh "Control mean"
 foreach p of local plist {
     local cm : display %6.4f `hijos_cm_`p''
-    file write fh " & `cm'"
+    file write fh " & \multicolumn{2}{c}{`cm'}"
 }
 file write fh " \\" _n
 
-* Observations
+* Observations (spans both specs per placebo)
 file write fh "Observations"
 foreach p of local plist {
-    local n : display %12.0fc `hijos_n_p_`p''
-    file write fh " & `=strtrim("`n'")'"
+    local n : display %12.0fc `hijos_n_a_`p''
+    file write fh " & \multicolumn{2}{c}{`=strtrim("`n'")'}"
 }
 file write fh " \\" _n
 
+* Controls for age row
+file write fh "Controls for age & & \checkmark & & \checkmark \\" _n
+
 file write fh "\hline\hline" _n
-file write fh "\end{tabular}" _n
+file write fh "\end{tabular*}" _n
 file write fh "\par\smallskip" _n
 file write fh "\begin{minipage}{0.95\textwidth}" _n
 file write fh "\scriptsize" _n
-file write fh "OLS (ITT, reduced form). Three contemporaneous 2023 lotteries: Nov 23 (any type, credits never disbursed); Sep 26 (DU only, credits disbursed); Dec 4 (DU only, credits disbursed). Outcome: number of children born strictly after the lottery year (\(n\_kids\_post = n\_kids\_2024 - n\_kids\_at\_sorteo\)), computed from the civil-registry of births. Because all three placebos are 2023 sorteos, the outcome is observed over a single calendar year (2024). All specifications control for age at lottery and pre-lottery \# children, plus lottery FE. SE clustered at person level (parentheses).\\" _n
+file write fh "OLS (ITT, reduced form). Two placebos: SAGOL II (Nov 23 2023 sorteo, any type, credits never disbursed); Zero Take-up (all sorteo\_fe groups whose winners did not draw down credit). Outcome: number of children born strictly after the lottery year (\(n\_kids\_post = n\_kids\_2024 - n\_kids\_at\_sorteo\)), computed from the civil-registry of births. Lottery FE absorbed; SE clustered at person level (parentheses).\\" _n
 file write fh "\sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)" _n
 file write fh "\end{minipage}" _n
 file write fh "\end{table}" _n
@@ -1541,34 +1556,28 @@ cap erase "$temp/_plac_q_flags_entity.dta"
 cap erase "$temp/_plac_proc_kids_panel.dta"
 
 di as text _n(3) "============================================================"
-di as text       "  PLACEBO + COMPARISON RUN — COMPLETE"
+di as text       "  PLACEBO RUN — COMPLETE"
 di as text       "============================================================"
 di as text _n "Tables produced (in $tables/):"
-di as text _n "  Nov 23 (placebo, no credits disbursed):"
-di as text "    placebo_first_stage.tex"
-di as text "    placebo_main.tex"
-di as text "    placebo_main_full.tex"
-di as text "    placebo_bcra.tex"
-di as text "    placebo_hijos.tex"
-di as text _n "  Sep 26 (DU, comparison):"
-di as text "    placebo_first_stage_sep26_du.tex"
-di as text "    placebo_main_sep26_du.tex"
-di as text "    placebo_main_full_sep26_du.tex"
-di as text "    placebo_bcra_sep26_du.tex"
-di as text "    placebo_hijos_sep26_du.tex"
-di as text _n "  Dec 4 (DU, comparison):"
-di as text "    placebo_first_stage_dec4_du.tex"
-di as text "    placebo_main_dec4_du.tex"
-di as text "    placebo_main_full_dec4_du.tex"
-di as text "    placebo_bcra_dec4_du.tex"
-di as text "    placebo_hijos_dec4_du.tex"
+di as text _n "  SAGOL II (Nov 23 2023, no credits disbursed):"
+di as text "    placebo_first_stage_sagol.tex"
+di as text "    placebo_main_sagol.tex"
+di as text "    placebo_main_full_sagol.tex"
+di as text "    placebo_bcra_sagol.tex"
+di as text "    placebo_hijos_sagol.tex"
+di as text _n "  Zero Take-up (all sorteo_fe with sum(receptor)=0):"
+di as text "    placebo_first_stage_zero_recep.tex"
+di as text "    placebo_main_zero_recep.tex"
+di as text "    placebo_main_full_zero_recep.tex"
+di as text "    placebo_bcra_zero_recep.tex"
+di as text "    placebo_hijos_zero_recep.tex"
 di as text _n "  Combined (robustness section):"
-di as text "    placebo_fs_combined.tex     — 3 first stages side by side"
-di as text "    placebo_itt_combined.tex    — 3 ITTs × 2 outcomes × 2 specs"
-di as text "    placebo_bcra_combined.tex   — 3 BCRA ITTs × 7 outcomes"
-di as text "    placebo_hijos_combined.tex  — 3 fertility ITTs (n_kids_post)"
+di as text "    placebo_fs_combined.tex     — 2 first stages side by side"
+di as text "    placebo_itt_combined.tex    — 2 labor ITTs × 2 outcomes × 2 specs"
+di as text "    placebo_bcra_combined.tex   — 2 BCRA ITTs × 3 outcomes × 2 specs"
+di as text "    placebo_hijos_combined.tex  — 2 fertility ITTs × 2 specs"
 di as text _n "Interpretation:"
-di as text "  Nov 23: all coefficients ≈ 0 (exclusion restriction supported)."
-di as text "  Sep 26 / Dec 4: ITT should match main paper magnitudes,"
-di as text "  validating that the Nov 23 null is due to non-disbursement."
+di as text "  All coefficients should be ≈ 0 — both placebos have zero first stage."
+di as text "  SAGOL II identifies off one sharp lottery, Zero Take-up off all"
+di as text "  sorteo_fe groups with zero receptores (larger N, more power)."
 di as text "============================================================"
