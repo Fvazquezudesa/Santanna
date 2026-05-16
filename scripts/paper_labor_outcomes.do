@@ -920,14 +920,14 @@ foreach table_kind in "main" "full" {
         local specs_to_run "noctl agectl"
         local n_specs = 2
         local out_file "$tables/table_main.tex"
-        local table_caption "Main Effects and Gender Heterogeneity"
+        local table_caption "Labor Market Effects"
         local table_label "tab:main"
     }
     else {
         local specs_to_run "ctl"
         local n_specs = 1
         local out_file "$tables/table_main_full.tex"
-        local table_caption "Main Effects and Gender Heterogeneity (Full Controls)"
+        local table_caption "Labor Market Effects (Full Controls)"
         local table_label "tab:main_full"
     }
 
