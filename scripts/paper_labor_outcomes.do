@@ -1076,16 +1076,6 @@ foreach table_kind in "main" "full" {
             file write fh " & (`se')"
         }
     }
-    file write fh " \\[0.2em]" _n
-
-    * --- Row: p-val ---
-    file write fh "p-val (H\(_0\): \(\delta = 0\))"
-    forvalues j = 1/3 {
-        forvalues k = 1/`n_specs' {
-            local p : display %5.3f `p_d_`j'_`k''
-            file write fh " & `p'"
-        }
-    }
     file write fh " \\" _n
 
     file write fh "\hline" _n
@@ -1151,10 +1141,10 @@ foreach table_kind in "main" "full" {
     file write fh "\begin{minipage}{0.95\textwidth}" _n
     file write fh "\scriptsize" _n
     if "`table_kind'" == "main" {
-        file write fh "IV/2SLS. Instrument: \emph{winner}. SE clustered at person level (in parentheses). \textbf{Recipient (pooled)} estimated on the FULL sample with lottery FE; \(\beta_M\), \(\beta_W\) estimated on the \emph{pre\_employed == 1} sub-sample with lottery \(\times\) female FE (interaction IV), \(\beta_W = \beta_M + \delta\) via \emph{lincom}. p-value tests H\(_0\): \(\delta = 0\) (asymptotic normal, two-sided). Cols (2)/(4)/(6) add \emph{age} as control (and \emph{female}\(\times\)\emph{age} for gender rows). Columns (3)/(4) outcome: share of months employed in [lottery date + `k_months', Dec 2025].\\" _n
+        file write fh "IV/2SLS. Instrument: \emph{winner}. SE clustered at person level (in parentheses). \textbf{Recipient (pooled)} estimated on the FULL sample with lottery FE; \(\beta_M\), \(\beta_W\) estimated on the \emph{pre\_employed == 1} sub-sample with lottery \(\times\) female FE (interaction IV), \(\beta_W = \beta_M + \delta\) via \emph{lincom}. Cols (2)/(4)/(6) add \emph{age} as control (and \emph{female}\(\times\)\emph{age} for gender rows). Columns (3)/(4) outcome: share of months employed in [lottery date + `k_months', Dec 2025].\\" _n
     }
     else {
-        file write fh "IV/2SLS, full controls. Instrument: \emph{winner}. SE clustered at person level (in parentheses). \textbf{Recipient (pooled)} on the FULL sample with lottery FE and controls \emph{age, pre\_employed, pre\_wage, female}; \(\beta_M\), \(\beta_W\) on the \emph{pre\_employed == 1} sub-sample with lottery \(\times\) female FE and controls \emph{age, pre\_wage} and their \emph{female}\(\times\) interactions; \(\beta_W = \beta_M + \delta\) via \emph{lincom}. p-value tests H\(_0\): \(\delta = 0\). Column (2) outcome: share of months employed in [lottery date + `k_months', Dec 2025].\\" _n
+        file write fh "IV/2SLS, full controls. Instrument: \emph{winner}. SE clustered at person level (in parentheses). \textbf{Recipient (pooled)} on the FULL sample with lottery FE and controls \emph{age, pre\_employed, pre\_wage, female}; \(\beta_M\), \(\beta_W\) on the \emph{pre\_employed == 1} sub-sample with lottery \(\times\) female FE and controls \emph{age, pre\_wage} and their \emph{female}\(\times\) interactions; \(\beta_W = \beta_M + \delta\) via \emph{lincom}. Column (2) outcome: share of months employed in [lottery date + `k_months', Dec 2025].\\" _n
     }
     file write fh "\sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)" _n
     file write fh "\end{minipage}" _n
