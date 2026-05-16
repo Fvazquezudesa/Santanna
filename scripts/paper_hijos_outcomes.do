@@ -884,7 +884,7 @@ capture file close fh
 file open fh using "$tables/table_hijos_type_year.tex", write replace
 file write fh "\begin{table}[H]\centering" _n
 file write fh "\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}" _n
-file write fh "\caption{Children Born After Sorteo by Credit Type and Cohort: IV with edad + n\_kids\_pre}" _n
+file write fh "\caption{Children Born After Lottery by Credit Type and Cohort: IV with age + n\_kids\_pre}" _n
 file write fh "\label{tab:hijos_type_year}" _n
 file write fh "\scriptsize" _n
 file write fh "\begin{tabular}{@{}lcccc@{}}" _n
@@ -947,7 +947,7 @@ foreach grp_name in "Apartment Purchases (DU)" "House Construction" "Land Purcha
     if `grp_num' < 3 file write fh "[0.5em]" _n
 }
 file write fh "\hline\hline" _n
-file write fh "\multicolumn{5}{p{0.85\textwidth}}{\scriptsize IV/2SLS with controls edad + n\_kids\_pre. Instrument: lottery winner. Outcome: \emph{Had Kid After} (indicator for first child born strictly after the sorteo year). SE clustered at person level (in parentheses). Control means and \(N\) in brackets. Sorteo FE absorbed.} \\" _n
+file write fh "\multicolumn{5}{p{0.85\textwidth}}{\scriptsize IV/2SLS with controls age + n\_kids\_pre. Instrument: lottery winner. Outcome: \emph{Had Kid After} (indicator for first child born strictly after the sorteo year). SE clustered at person level (in parentheses). Control means and \(N\) in brackets. Lottery FE absorbed.} \\" _n
 file write fh "\multicolumn{5}{l}{\scriptsize \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}" _n
 file write fh "\end{tabular}\end{table}" _n
 file close fh

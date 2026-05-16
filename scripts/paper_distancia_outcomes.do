@@ -153,7 +153,7 @@ foreach fam in B C D {
     replace bin_`fam' = 2 if abs(`dev') <= `tau' & !mi(`dev')
     replace bin_`fam' = 3 if `dev' > `tau' & !mi(`dev')
 }
-label define binlab 1 "Acerca" 2 "Igual" 3 "Aleja"
+label define binlab 1 "Closer" 2 "Same" 3 "Away"
 label values bin_B bin_C bin_D binlab
 
 * Merge changed_cuit
@@ -243,8 +243,8 @@ foreach fam in B C D {
                     local p_a = 2*ttail(e(df_r), abs(`b_a'/`se_a'))
                     local p_z = 2*ttail(e(df_r), abs(`b_z'/`se_z'))
                 }
-                post `pf' ("Bin") ("`fam'") ("`ctl'") ("`y'") (-1) ("Acerca") (`b_a') (`se_a') (`p_a') (.) (.) (e(N))
-                post `pf' ("Bin") ("`fam'") ("`ctl'") ("`y'") (-1) ("Aleja")  (`b_z') (`se_z') (`p_z') (.) (.) (e(N))
+                post `pf' ("Bin") ("`fam'") ("`ctl'") ("`y'") (-1) ("Closer") (`b_a') (`se_a') (`p_a') (.) (.) (e(N))
+                post `pf' ("Bin") ("`fam'") ("`ctl'") ("`y'") (-1) ("Away")  (`b_z') (`se_z') (`p_z') (.) (.) (e(N))
             }
 
             ********** Block 3: Bin × cuit-change split **********
@@ -271,8 +271,8 @@ foreach fam in B C D {
                         local p_a = 2*ttail(e(df_r), abs(`b_a'/`se_a'))
                         local p_z = 2*ttail(e(df_r), abs(`b_z'/`se_z'))
                     }
-                    post `pf' ("Bin_CC") ("`fam'") ("`ctl'") ("`y'") (`cc') ("Acerca") (`b_a') (`se_a') (`p_a') (.) (.) (e(N))
-                    post `pf' ("Bin_CC") ("`fam'") ("`ctl'") ("`y'") (`cc') ("Aleja")  (`b_z') (`se_z') (`p_z') (.) (.) (e(N))
+                    post `pf' ("Bin_CC") ("`fam'") ("`ctl'") ("`y'") (`cc') ("Closer") (`b_a') (`se_a') (`p_a') (.) (.) (e(N))
+                    post `pf' ("Bin_CC") ("`fam'") ("`ctl'") ("`y'") (`cc') ("Away")  (`b_z') (`se_z') (`p_z') (.) (.) (e(N))
                 }
             }
         }
@@ -344,7 +344,7 @@ foreach fam in B C D {
 
     ****** 4c: Lee bounds by bin (Acerca/Igual/Aleja) ******
     forvalues b = 1/3 {
-        local bin_lbl = cond(`b'==1, "Acerca", cond(`b'==2, "Igual", "Aleja"))
+        local bin_lbl = cond(`b'==1, "Closer", cond(`b'==2, "Same", "Away"))
         local cond_b "`base_cond' & `binvar' == `b'"
         quietly count if `cond_b'
         local N_b = r(N)
@@ -438,7 +438,7 @@ foreach y of local outcomes_export {
     file write texout "\hline" _n
 
     * Helper macros for cell formatting
-    foreach rowname in Slope Acerca Aleja {
+    foreach rowname in Slope Closer Away {
         if "`rowname'" == "Slope" {
             local blk "Slope"
             local coefname "Slope"
@@ -488,7 +488,7 @@ foreach y of local outcomes_export {
     file write texout "N"
     foreach fam in C D {
         foreach ctl in none age full {
-            quietly levelsof N if family == "`fam'" & ctl == "`ctl'" & outcome == "`y'" & block == "Bin" & coef == "Acerca", local(Nv)
+            quietly levelsof N if family == "`fam'" & ctl == "`ctl'" & outcome == "`y'" & block == "Bin" & coef == "Closer", local(Nv)
             if "`Nv'" == "" {
                 file write texout " & "
             }
@@ -502,14 +502,14 @@ foreach y of local outcomes_export {
 
     * Controls rows (checkmarks)
     file write texout "Controls for age            &              & \checkmark   & \checkmark   &              & \checkmark   & \checkmark   \\" _n
-    file write texout "Full controls (mujer, pre\_wage) &         &              & \checkmark   &              &              & \checkmark   \\" _n
+    file write texout "Full controls (female, pre\_wage) &         &              & \checkmark   &              &              & \checkmark   \\" _n
 
     file write texout "\hline\hline" _n
     file write texout "\end{tabular*}" _n
     file write texout "\par\smallskip" _n
     file write texout "\begin{minipage}{0.90\textwidth}" _n
     file write texout "\scriptsize" _n
-    file write texout "Sample 1: pre-residents within 50~km of CABA. Sample 2: pre-residents within 50~km of any of 21 main urban centers. RHS distance change $\Delta$ is rowmin over 21 urban centers. Trim $|\Delta|\leq 50$~km. Bins (Igual reference): Acerca $\Delta<-5$, Aleja $\Delta>+5$. All include sorteo FE; SE clustered at person level. Sample: \emph{pre\_employed} $=1$. Full controls: edad, mujer, pre\_wage.\\" _n
+    file write texout "Sample 1: pre-residents within 50~km of CABA. Sample 2: pre-residents within 50~km of any of 21 main urban centers. RHS distance change $\Delta$ is rowmin over 21 urban centers. Trim $|\Delta|\leq 50$~km. Bins (Same reference): Closer $\Delta<-5$, Away $\Delta>+5$. All include lottery FE; SE clustered at person level. Sample: \emph{pre\_employed} $=1$. Full controls: age, female, pre\_wage.\\" _n
     file write texout "\sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)" _n
     file write texout "\end{minipage}" _n
     file close texout

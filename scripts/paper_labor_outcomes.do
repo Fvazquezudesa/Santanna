@@ -416,7 +416,7 @@ esttab fs_noctl fs_agectl fs_ctl ///
     keep(ganador) se(%9.4f) b(%9.4f) ///
     star(* 0.10 ** 0.05 *** 0.01) ///
     nonumbers nomtitles ///
-    coeflabels(ganador "Ganador") ///
+    coeflabels(ganador "Winner") ///
     prehead(`"\begin{table}[H]\centering"' ///
             `"\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}"' ///
             `"\caption{First Stage: Credit Take-up on Lottery Winning}"' ///
@@ -437,7 +437,7 @@ esttab fs_noctl fs_agectl fs_ctl ///
              `"\par\smallskip"' ///
              `"\begin{minipage}{0.85\textwidth}"' ///
              `"\scriptsize"' ///
-             `"OLS. Outcome: \emph{receptor} (=1 if applicant received PROCREAR credit). Coefficient on \emph{ganador} is the take-up rate among winners minus among losers (compliance share). (1): no controls. (2): adds \emph{edad}. (3): adds \emph{edad, pre\_employed, pre\_wage, mujer}. SE clustered at person level (in parentheses). Sorteo FE absorbed. F-statistic tests H\(_0\): coefficient on \emph{ganador} = 0.\\"' ///
+             `"OLS. Outcome: \emph{recipient} (=1 if applicant received PROCREAR credit). Coefficient on \emph{winner} is the take-up rate among winners minus among losers (compliance share). (1): no controls. (2): adds \emph{age}. (3): adds \emph{age, pre\_employed, pre\_wage, female}. SE clustered at person level (in parentheses). Lottery FE absorbed. F-statistic tests H\(_0\): coefficient on \emph{winner} = 0.\\"' ///
              `"\sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)"' ///
              `"\end{minipage}"' ///
              `"\end{table}"') ///
@@ -707,7 +707,7 @@ file write fh "\scriptsize" _n
 file write fh "\setlength{\tabcolsep}{4pt}" _n
 file write fh "\begin{tabular}{@{}lccc@{}}" _n
 file write fh "\hline\hline" _n
-file write fh " & Formal Emp & Monotributo & Emp Share (`k_months'm+) \\" _n
+file write fh " & Formal Emp & Self-employed & Emp Share (`k_months'm+) \\" _n
 file write fh " & (1) & (2) & (3) \\" _n
 
 * --- Outer loop: 3 specs as panels ---
@@ -874,7 +874,7 @@ file write fh " \\" _n
 
 * --- Footer ---
 file write fh "\hline\hline" _n
-file write fh "\multicolumn{4}{p{0.95\textwidth}}{\scriptsize IV/2SLS, fully-interacted regression per outcome with sorteo \(\times\) mujer fixed effects absorbed (gender-specific sorteo intercepts; equivalent to subgroup IV sample-split by mujer). Endogenous: \emph{receptor}, \emph{mujer}\(\times\)\emph{receptor}. Instruments: \emph{ganador}, \emph{mujer}\(\times\)\emph{ganador}. \textbf{All regressions restricted to \emph{pre\_employed = 1}} (retention margin among the formally pre-employed). Controls in Panel B add \emph{edad} and \emph{mujer}\(\times\)\emph{edad}; in Panel C add \emph{pre\_wage} and \emph{mujer}\(\times\)\emph{pre\_wage} (\emph{pre\_employed} omitted as it is constant within sample). \(\beta_M\) is the coefficient on \emph{receptor}; \(\delta\) is the coefficient on \emph{mujer}\(\times\)\emph{receptor}; \(\beta_W = \beta_M + \delta\) (via \emph{lincom}). p-value tests H\(_0\): \(\delta = 0\) (asymptotic normal, two-sided). Column (3) outcome: share of months employed in [fecha\_sorteo + `k_months', Dec 2025]. First-stage F is the joint Kleibergen-Paap rk Wald statistic. SE clustered at person level (in parentheses).}" _n
+file write fh "\multicolumn{4}{p{0.95\textwidth}}{\scriptsize IV/2SLS, fully-interacted regression per outcome with sorteo \(\times\) female fixed effects absorbed (gender-specific sorteo intercepts; equivalent to subgroup IV sample-split by female). Endogenous: \emph{recipient}, \emph{female}\(\times\)\emph{recipient}. Instruments: \emph{winner}, \emph{female}\(\times\)\emph{winner}. \textbf{All regressions restricted to \emph{pre\_employed = 1}} (retention margin among the formally pre-employed). Controls in Panel B add \emph{age} and \emph{female}\(\times\)\emph{age}; in Panel C add \emph{pre\_wage} and \emph{female}\(\times\)\emph{pre\_wage} (\emph{pre\_employed} omitted as it is constant within sample). \(\beta_M\) is the coefficient on \emph{recipient}; \(\delta\) is the coefficient on \emph{female}\(\times\)\emph{recipient}; \(\beta_W = \beta_M + \delta\) (via \emph{lincom}). p-value tests H\(_0\): \(\delta = 0\) (asymptotic normal, two-sided). Column (3) outcome: share of months employed in [lottery date + `k_months', Dec 2025]. First-stage F is the joint Kleibergen-Paap rk Wald statistic. SE clustered at person level (in parentheses).}" _n
 file write fh "\multicolumn{4}{l}{\scriptsize \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}" _n
 file write fh "\end{tabular}" _n
 file write fh "\end{table}" _n
@@ -997,20 +997,20 @@ foreach table_kind in "main" "full" {
     if "`table_kind'" == "main" {
         file write fh "\begin{tabular}{@{}l*{6}{>{\centering\arraybackslash}p{0.115\textwidth}}@{}}" _n
         file write fh "\hline\hline" _n
-        file write fh " & \multicolumn{2}{c}{Formal Emp} & \multicolumn{2}{c}{Emp Share (`k_months'm+)} & \multicolumn{2}{c}{Monotributo} \\" _n
+        file write fh " & \multicolumn{2}{c}{Formal Emp} & \multicolumn{2}{c}{Emp Share (`k_months'm+)} & \multicolumn{2}{c}{Self-employed} \\" _n
         file write fh "\cline{2-3}\cline{4-5}\cline{6-7}" _n
         file write fh " & (1) & (2) & (3) & (4) & (5) & (6) \\" _n
     }
     else {
         file write fh "\begin{tabular}{@{}l*{3}{>{\centering\arraybackslash}p{0.18\textwidth}}@{}}" _n
         file write fh "\hline\hline" _n
-        file write fh " & Formal Emp & Emp Share (`k_months'm+) & Monotributo \\" _n
+        file write fh " & Formal Emp & Emp Share (`k_months'm+) & Self-employed \\" _n
         file write fh " & (1) & (2) & (3) \\" _n
     }
     file write fh "\hline" _n
 
     * --- Row: Receptor (pooled) ---
-    file write fh "Receptor (pooled)"
+    file write fh "Recipient (pooled)"
     forvalues j = 1/3 {
         forvalues k = 1/`n_specs' {
             local b : display %9.4f `b_pool_`j'_`k''
@@ -1151,10 +1151,10 @@ foreach table_kind in "main" "full" {
     file write fh "\begin{minipage}{0.95\textwidth}" _n
     file write fh "\scriptsize" _n
     if "`table_kind'" == "main" {
-        file write fh "IV/2SLS. Instrument: \emph{ganador}. SE clustered at person level (in parentheses). \textbf{Receptor (pooled)} estimated on the FULL sample with sorteo FE; \(\beta_M\), \(\beta_W\) estimated on the \emph{pre\_employed == 1} sub-sample with sorteo \(\times\) mujer FE (interaction IV), \(\beta_W = \beta_M + \delta\) via \emph{lincom}. p-value tests H\(_0\): \(\delta = 0\) (asymptotic normal, two-sided). Cols (2)/(4)/(6) add \emph{edad} as control (and \emph{mujer}\(\times\)\emph{edad} for gender rows). Columns (3)/(4) outcome: share of months employed in [fecha\_sorteo + `k_months', Dec 2025].\\" _n
+        file write fh "IV/2SLS. Instrument: \emph{winner}. SE clustered at person level (in parentheses). \textbf{Recipient (pooled)} estimated on the FULL sample with lottery FE; \(\beta_M\), \(\beta_W\) estimated on the \emph{pre\_employed == 1} sub-sample with lottery \(\times\) female FE (interaction IV), \(\beta_W = \beta_M + \delta\) via \emph{lincom}. p-value tests H\(_0\): \(\delta = 0\) (asymptotic normal, two-sided). Cols (2)/(4)/(6) add \emph{age} as control (and \emph{female}\(\times\)\emph{age} for gender rows). Columns (3)/(4) outcome: share of months employed in [lottery date + `k_months', Dec 2025].\\" _n
     }
     else {
-        file write fh "IV/2SLS, full controls. Instrument: \emph{ganador}. SE clustered at person level (in parentheses). \textbf{Receptor (pooled)} on the FULL sample with sorteo FE and controls \emph{edad, pre\_employed, pre\_wage, mujer}; \(\beta_M\), \(\beta_W\) on the \emph{pre\_employed == 1} sub-sample with sorteo \(\times\) mujer FE and controls \emph{edad, pre\_wage} and their \emph{mujer}\(\times\) interactions; \(\beta_W = \beta_M + \delta\) via \emph{lincom}. p-value tests H\(_0\): \(\delta = 0\). Column (2) outcome: share of months employed in [fecha\_sorteo + `k_months', Dec 2025].\\" _n
+        file write fh "IV/2SLS, full controls. Instrument: \emph{winner}. SE clustered at person level (in parentheses). \textbf{Recipient (pooled)} on the FULL sample with lottery FE and controls \emph{age, pre\_employed, pre\_wage, female}; \(\beta_M\), \(\beta_W\) on the \emph{pre\_employed == 1} sub-sample with lottery \(\times\) female FE and controls \emph{age, pre\_wage} and their \emph{female}\(\times\) interactions; \(\beta_W = \beta_M + \delta\) via \emph{lincom}. p-value tests H\(_0\): \(\delta = 0\). Column (2) outcome: share of months employed in [lottery date + `k_months', Dec 2025].\\" _n
     }
     file write fh "\sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)" _n
     file write fh "\end{minipage}" _n
@@ -1189,7 +1189,7 @@ file write fh "\scriptsize" _n
 file write fh "\setlength{\tabcolsep}{0pt}" _n
 file write fh "\begin{tabular}{@{}l*{3}{>{\centering\arraybackslash}p{0.19\textwidth}}@{}}" _n
 file write fh "\hline\hline" _n
-file write fh " & Formal Emp & Monotributo & Emp Share (`k_months'm+) \\" _n
+file write fh " & Formal Emp & Self-employed & Emp Share (`k_months'm+) \\" _n
 file write fh " & (1) & (2) & (3) \\" _n
 
 foreach spec in "agectl" "ctl" {
@@ -1259,7 +1259,7 @@ file write fh "\end{tabular}" _n
 file write fh "\par\smallskip" _n
 file write fh "\begin{minipage}{0.92\textwidth}" _n
 file write fh "\scriptsize" _n
-file write fh "IV/2SLS. Instrument: \emph{ganador}. SE clustered at person level (in parentheses). Control means and N in brackets. Panel A adds \emph{edad}; Panel B adds \emph{edad, pre\_employed, pre\_wage, mujer}. Column (3) outcome: share of months employed in [fecha\_sorteo + `k_months', Dec 2025]. Sorteo FE absorbed.\\" _n
+file write fh "IV/2SLS. Instrument: \emph{winner}. SE clustered at person level (in parentheses). Control means and N in brackets. Panel A adds \emph{age}; Panel B adds \emph{age, pre\_employed, pre\_wage, female}. Column (3) outcome: share of months employed in [lottery date + `k_months', Dec 2025]. Lottery FE absorbed.\\" _n
 file write fh "\sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)" _n
 file write fh "\end{minipage}" _n
 file write fh "\end{table}" _n
@@ -1292,7 +1292,7 @@ file write fh "\scriptsize" _n
 file write fh "\setlength{\tabcolsep}{0pt}" _n
 file write fh "\begin{tabular}{@{}l*{3}{>{\centering\arraybackslash}p{0.19\textwidth}}@{}}" _n
 file write fh "\hline\hline" _n
-file write fh " & Formal Emp & Monotributo & Emp Share (`k_months'm+) \\" _n
+file write fh " & Formal Emp & Self-employed & Emp Share (`k_months'm+) \\" _n
 file write fh " & (1) & (2) & (3) \\" _n
 
 foreach spec in "agectl" "ctl" {
@@ -1359,7 +1359,7 @@ file write fh "\end{tabular}" _n
 file write fh "\par\smallskip" _n
 file write fh "\begin{minipage}{0.92\textwidth}" _n
 file write fh "\scriptsize" _n
-file write fh "IV/2SLS. Instrument: \emph{ganador}. SE clustered at person level (in parentheses). Panel A adds \emph{edad}; Panel B adds \emph{edad, pre\_employed, pre\_wage, mujer}. Column (3) outcome: share of months employed in [fecha\_sorteo + `k_months', Dec 2025]. Sorteo FE absorbed.\\" _n
+file write fh "IV/2SLS. Instrument: \emph{winner}. SE clustered at person level (in parentheses). Panel A adds \emph{age}; Panel B adds \emph{age, pre\_employed, pre\_wage, female}. Column (3) outcome: share of months employed in [lottery date + `k_months', Dec 2025]. Lottery FE absorbed.\\" _n
 file write fh "\sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)" _n
 file write fh "\end{minipage}" _n
 file write fh "\end{table}" _n
@@ -1392,7 +1392,7 @@ file write fh "\scriptsize" _n
 file write fh "\setlength{\tabcolsep}{0pt}" _n
 file write fh "\begin{tabular*}{0.95\textwidth}{@{\extracolsep{\fill}}lcccccc@{}}" _n
 file write fh "\hline\hline" _n
-file write fh " & \multicolumn{2}{c}{DU} & \multicolumn{2}{c}{Construcci\'{o}n} & \multicolumn{2}{c}{Lotes} \\" _n
+file write fh " & \multicolumn{2}{c}{DU} & \multicolumn{2}{c}{Construction} & \multicolumn{2}{c}{Land} \\" _n
 file write fh "\cline{2-3}\cline{4-5}\cline{6-7}" _n
 file write fh " & Formal Emp & Emp Share & Formal Emp & Emp Share & Formal Emp & Emp Share \\" _n
 file write fh " & (1) & (2) & (3) & (4) & (5) & (6) \\" _n
@@ -1485,7 +1485,7 @@ file write fh "\end{tabular*}" _n
 file write fh "\par\smallskip" _n
 file write fh "\begin{minipage}{0.90\textwidth}" _n
 file write fh "\scriptsize" _n
-file write fh "IV/2SLS. Instrument: \emph{ganador}. SE clustered at person level (in parentheses). Panel A adds \emph{edad}; Panel B adds \emph{edad, pre\_employed, pre\_wage, mujer}. Emp Share is the share of months employed in [fecha\_sorteo + `k_months', Dec 2025]. Sorteo FE absorbed. Empty cells indicate the regression did not converge or had no observations.\\" _n
+file write fh "IV/2SLS. Instrument: \emph{winner}. SE clustered at person level (in parentheses). Panel A adds \emph{age}; Panel B adds \emph{age, pre\_employed, pre\_wage, female}. Emp Share is the share of months employed in [lottery date + `k_months', Dec 2025]. Lottery FE absorbed. Empty cells indicate the regression did not converge or had no observations.\\" _n
 file write fh "\sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)" _n
 file write fh "\end{minipage}" _n
 file write fh "\end{table}" _n

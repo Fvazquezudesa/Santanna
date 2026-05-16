@@ -480,20 +480,20 @@ foreach placebo_id in "nov23" "sep26_du" "dec4_du" {
         if "`table_kind'" == "main" {
             file write fh "\begin{tabular}{@{}l*{6}{c}@{}}" _n
             file write fh "\hline\hline" _n
-            file write fh " & \multicolumn{2}{c}{Formal Emp} & \multicolumn{2}{c}{Emp Share (`k_months'm+)} & \multicolumn{2}{c}{Monotributo} \\" _n
+            file write fh " & \multicolumn{2}{c}{Formal Emp} & \multicolumn{2}{c}{Emp Share (`k_months'm+)} & \multicolumn{2}{c}{Self-employed} \\" _n
             file write fh "\cline{2-3}\cline{4-5}\cline{6-7}" _n
             file write fh " & (1) & (2) & (3) & (4) & (5) & (6) \\" _n
         }
         else {
             file write fh "\begin{tabular}{@{}l*{3}{c}@{}}" _n
             file write fh "\hline\hline" _n
-            file write fh " & Formal Emp & Emp Share (`k_months'm+) & Monotributo \\" _n
+            file write fh " & Formal Emp & Emp Share (`k_months'm+) & Self-employed \\" _n
             file write fh " & (1) & (2) & (3) \\" _n
         }
         file write fh "\hline" _n
 
         * Ganador (pooled, ITT)
-        file write fh "Ganador (pooled, ITT)"
+        file write fh "Winner (pooled, ITT)"
         forvalues j = 1/3 {
             forvalues k = 1/`n_specs' {
                 local b : display %9.4f `b_pool_`j'_`k''
@@ -619,11 +619,11 @@ foreach placebo_id in "nov23" "sep26_du" "dec4_du" {
 
         file write fh "\hline\hline" _n
         if "`table_kind'" == "main" {
-            file write fh "\multicolumn{7}{p{0.95\textwidth}}{\scriptsize OLS (ITT, reduced form). Sample: `caption_id'. \textbf{Ganador (pooled, ITT)} on FULL sample with sorteo FE; \(\beta_M\), \(\beta_W\) from interaction OLS on \emph{pre\_employed == 1} sub-sample with sorteo \(\times\) mujer FE and \emph{mujer}\(\times\)\emph{ganador} interaction; \(\beta_W = \beta_M + \delta\) (coef on muj\_x\_gan), via \emph{lincom}. p-value tests H\(_0\): \(\delta = 0\). Cols (2)/(4)/(6) add \emph{edad} as control. Columns (3)/(4) outcome: share of months employed in [fecha\_sorteo + `k_months', Dec 2025].}" _n
+            file write fh "\multicolumn{7}{p{0.95\textwidth}}{\scriptsize OLS (ITT, reduced form). Sample: `caption_id'. \textbf{Winner (pooled, ITT)} on FULL sample with sorteo FE; \(\beta_M\), \(\beta_W\) from interaction OLS on \emph{pre\_employed == 1} sub-sample with sorteo \(\times\) female FE and \emph{female}\(\times\)\emph{winner} interaction; \(\beta_W = \beta_M + \delta\) (coef on muj\_x\_gan), via \emph{lincom}. p-value tests H\(_0\): \(\delta = 0\). Cols (2)/(4)/(6) add \emph{age} as control. Columns (3)/(4) outcome: share of months employed in [lottery date + `k_months', Dec 2025].}" _n
             file write fh "\multicolumn{7}{l}{\scriptsize \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}" _n
         }
         else {
-            file write fh "\multicolumn{4}{p{0.95\textwidth}}{\scriptsize OLS (ITT, reduced form). Sample: `caption_id'. Full controls. \textbf{Ganador (pooled, ITT)} on FULL sample; \(\beta_M\), \(\beta_W\) on \emph{pre\_employed == 1} sub-sample with sorteo \(\times\) mujer FE. Column (2) outcome: share of months employed in [fecha\_sorteo + `k_months', Dec 2025].}" _n
+            file write fh "\multicolumn{4}{p{0.95\textwidth}}{\scriptsize OLS (ITT, reduced form). Sample: `caption_id'. Full controls. \textbf{Winner (pooled, ITT)} on FULL sample; \(\beta_M\), \(\beta_W\) on \emph{pre\_employed == 1} sub-sample with sorteo \(\times\) female FE. Column (2) outcome: share of months employed in [lottery date + `k_months', Dec 2025].}" _n
             file write fh "\multicolumn{4}{l}{\scriptsize \sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)}" _n
         }
         file write fh "\end{tabular}" _n
@@ -707,7 +707,7 @@ file open fh using "$tables/placebo_fs_combined.tex", write replace
 
 file write fh "\begin{table}[H]\centering" _n
 file write fh "\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}" _n
-file write fh "\caption{First Stage Comparison Across Three Sorteos}" _n
+file write fh "\caption{First Stage Comparison Across Three Lotteries}" _n
 file write fh "\label{tab:placebo_fs_combined}" _n
 file write fh "\scriptsize" _n
 file write fh "\setlength{\tabcolsep}{0pt}" _n
@@ -764,7 +764,7 @@ file write fh "\end{tabular}" _n
 file write fh "\par\smallskip" _n
 file write fh "\begin{minipage}{0.85\textwidth}" _n
 file write fh "\scriptsize" _n
-file write fh "OLS first stage. Outcome: \emph{receptor} (= 1 if applicant received PROCREAR credit). Three contemporaneous 2023 sorteos: Nov 23 (any tipo, credits never disbursed); Sep 26 (DU only); Dec 4 (DU only). The Nov 23 sorteo coefficient is mechanically 0 because no credits were disbursed. The other two should match the main-sample first stage of \(\approx\) 0.34. No additional controls; sorteo FE absorbed; SE clustered at person level.\\" _n
+file write fh "OLS first stage. Outcome: \emph{recipient} (= 1 if applicant received PROCREAR credit). Three contemporaneous 2023 lotteries: Nov 23 (any type, credits never disbursed); Sep 26 (DU only); Dec 4 (DU only). The Nov 23 lottery coefficient is mechanically 0 because no credits were disbursed. The other two should match the main-sample first stage of \(\approx\) 0.34. No additional controls; lottery FE absorbed; SE clustered at person level.\\" _n
 file write fh "\sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)" _n
 file write fh "\end{minipage}" _n
 file write fh "\end{table}" _n
@@ -780,7 +780,7 @@ file open fh using "$tables/placebo_itt_combined.tex", write replace
 
 file write fh "\begin{table}[H]\centering" _n
 file write fh "\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}" _n
-file write fh "\caption{ITT Comparison Across Three Sorteos (Pooled)}" _n
+file write fh "\caption{ITT Comparison Across Three Lotteries (Pooled)}" _n
 file write fh "\label{tab:placebo_itt_combined}" _n
 file write fh "\scriptsize" _n
 file write fh "\setlength{\tabcolsep}{0pt}" _n
@@ -802,7 +802,7 @@ file write fh "\multicolumn{7}{l}{\textit{Panel A: Formal Emp}} \\" _n
 file write fh "\hline" _n
 
 * coefficient row: 6 values
-file write fh "Ganador"
+file write fh "Winner"
 foreach p of local plist {
     foreach c in "n" "a" {
         local b : display %9.4f `b_emp_`c'_`p''
@@ -829,7 +829,7 @@ file write fh "\hline" _n
 file write fh "\multicolumn{7}{l}{\textit{Panel B: Emp Share (`k_months'm+)}} \\" _n
 file write fh "\hline" _n
 
-file write fh "Ganador"
+file write fh "Winner"
 foreach p of local plist {
     foreach c in "n" "a" {
         local b : display %9.4f `b_shr_`c'_`p''
@@ -882,7 +882,7 @@ file write fh "\end{tabular*}" _n
 file write fh "\par\smallskip" _n
 file write fh "\begin{minipage}{0.95\textwidth}" _n
 file write fh "\scriptsize" _n
-file write fh "OLS (ITT, reduced form). Three contemporaneous 2023 sorteos: Nov 23 (any tipo, credits never disbursed); Sep 26 (DU only, credits disbursed); Dec 4 (DU only, credits disbursed). Sorteo FE absorbed; SE clustered at person level (in parentheses). Panel B outcome: share of months employed in [fecha\_sorteo + `k_months', Dec 2025].\\" _n
+file write fh "OLS (ITT, reduced form). Three contemporaneous 2023 lotteries: Nov 23 (any type, credits never disbursed); Sep 26 (DU only, credits disbursed); Dec 4 (DU only, credits disbursed). Lottery FE absorbed; SE clustered at person level (in parentheses). Panel B outcome: share of months employed in [lottery date + `k_months', Dec 2025].\\" _n
 file write fh "\sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)" _n
 file write fh "\end{minipage}" _n
 file write fh "\end{table}" _n
