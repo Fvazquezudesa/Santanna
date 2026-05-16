@@ -23,16 +23,38 @@
   validates that the placebo's null is due to non-disbursement, not the
   era or sample composition.
 
-  Each placebo run produces THREE tables, sharing the same structure as
-  paper_labor_outcomes.do:
+  Each placebo run produces FIVE tables, sharing the same structure as
+  paper_labor_outcomes.do, paper_bcra_combined_age.do and
+  paper_hijos_outcomes.do:
     placebo_first_stage<sfx>.tex   — receptor on ganador (3 specs)
     placebo_main<sfx>.tex          — ITT pooled + gender (body, 2 specs)
     placebo_main_full<sfx>.tex     — same with full controls (appendix)
+    placebo_bcra<sfx>.tex          — ITT on 7 BCRA outcomes (age control)
+    placebo_hijos<sfx>.tex         — ITT on n_kids_post (3 specs)
+
+  Plus four cross-lottery combined tables in the robustness section:
+    placebo_fs_combined.tex        — 3 first stages side by side
+    placebo_itt_combined.tex       — 3 labor ITTs side by side
+    placebo_bcra_combined.tex      — 3 BCRA ITTs side by side
+    placebo_hijos_combined.tex     — 3 fertility ITTs side by side
 
   Sufixes:
     nov23     → no suffix (`placebo_first_stage.tex`)
     sep26_du  → `_sep26_du`
     dec4_du   → `_dec4_du`
+
+  BCRA outcomes (matching paper_bcra_combined_age.do):
+    Total Debt, Slow Payer, Banked  — all-entities sample
+    Q1-Q4 Cost                       — excl.-Hipotecario sample
+
+  Fertility outcome (matching paper_hijos_outcomes.do):
+    n_kids_post = n_kids_2024 - n_kids_at_sorteo (kids born strictly
+    after the lottery year, observed through end of 2024). All three
+    placebos are 2023 sorteos, so the observation window is one year.
+
+  Requires $temp/median_costo.dta from paper_bcra_outcomes.do for the
+  Q-cost quartile cutoffs (same cutoffs used in the main analysis).
+  Builds its own cumulative-children panel from $data/proc_as_parents.dta.
 
   Spec match with paper_labor_outcomes.do:
     - Edad: direct from Data_sorteos.edad_sorteo (no CUIL imputation)
@@ -85,6 +107,80 @@ gen double deflator = ipc / `ipc_base'
 
 keep periodo_month deflator
 save "$temp/_plac_deflator.dta", replace
+
+
+/*==============================================================================
+  STEP 1.5: Build Q-flag entity table for BCRA cost-quartile outcomes (once)
+
+  Uses $temp/median_costo.dta from paper_bcra_outcomes.do so the placebo
+  Q1-Q4 cutoffs match the main analysis exactly. Errors out if missing.
+==============================================================================*/
+
+di as text _n "=== STEP 1.5: Building Q-flag entity table for BCRA ===" _n
+
+capture confirm file "$temp/median_costo.dta"
+if _rc != 0 {
+    di as error "$temp/median_costo.dta not found — run paper_bcra_outcomes.do first."
+    error 601
+}
+
+use "$temp/median_costo.dta", clear
+keep entidad_str median_costo
+duplicates drop
+quietly sum median_costo, detail
+local q25 = r(p25)
+local q50 = r(p50)
+local q75 = r(p75)
+di as text "  Q-cutoffs: p25=" %9.2f `q25' ", p50=" %9.2f `q50' ", p75=" %9.2f `q75'
+
+gen byte is_q1 = (median_costo <  `q25')                         if median_costo != .
+gen byte is_q2 = (median_costo >= `q25' & median_costo <  `q50') if median_costo != .
+gen byte is_q3 = (median_costo >= `q50' & median_costo <  `q75') if median_costo != .
+gen byte is_q4 = (median_costo >= `q75')                         if median_costo != .
+
+keep entidad_str is_q1 is_q2 is_q3 is_q4
+save "$temp/_plac_q_flags_entity.dta", replace
+
+
+/*==============================================================================
+  STEP 1.6: Build cumulative-children panel (once, shared across placebos)
+
+  Mirrors STEP 0.4 of paper_hijos_outcomes.do. Reads proc_as_parents.dta
+  (CUIL x year_birth pairs from civil registry of births), reshapes to
+  wide format, expands to a (cuil x calendar year) panel of cumulative
+  number of children. Year range: 2000-2025.
+==============================================================================*/
+
+di as text _n "=== STEP 1.6: Building cumulative-children panel ===" _n
+
+local year_start = 2000
+local year_end   = 2025
+
+use "$data/proc_as_parents.dta", clear
+sort cuil year_birth
+by cuil: gen byte k = _n
+keep cuil k year_birth
+reshape wide year_birth, i(cuil) j(k)
+di as text "    Parents (unique cuils): " _N
+
+local n_years = `year_end' - `year_start' + 1
+expand `n_years'
+bysort cuil: gen int year = `year_start' + _n - 1
+di as text "    Panel size: " _N
+
+gen byte n_kids = 0
+forvalues j = 1/6 {
+    capture confirm variable year_birth`j'
+    if !_rc {
+        replace n_kids = n_kids + 1 if !missing(year_birth`j') & year_birth`j' <= year
+    }
+}
+
+keep cuil year n_kids
+rename cuil cuil_num
+sort cuil_num year
+save "$temp/_plac_proc_kids_panel.dta", replace
+di as text "    _plac_proc_kids_panel saved: " _N " rows"
 
 
 /*==============================================================================
@@ -157,6 +253,9 @@ foreach placebo_id in "nov23" "sep26_du" "dec4_du" {
     rename edad_sorteo edad
     label variable edad "Edad (anos) al dia del sorteo"
     cap drop fnacimiento
+
+    destring cuil, gen(cuil_num) force
+    label variable cuil_num "CUIL (numeric, for kids panel merge)"
 
     replace monotributo = . if monotributo == 24
     replace monotributo = . if monotributo == 1
@@ -248,7 +347,7 @@ foreach placebo_id in "nov23" "sep26_du" "dec4_du" {
     save "$temp/_plac_`placebo_id'_outcomes.dta", replace
 
     use "$temp/_plac_`placebo_id'_sorteo.dta", clear
-    keep id_anon ganador receptor sorteo_fe tipo tipo_grupo sorteo_month ///
+    keep id_anon cuil_num ganador receptor sorteo_fe tipo tipo_grupo sorteo_month ///
          cohort_year fecha_sorteo is_monotributo edad mujer
 
     merge m:1 id_anon using "$temp/_plac_`placebo_id'_outcomes.dta", keep(master match) nogenerate
@@ -680,6 +779,360 @@ foreach placebo_id in "nov23" "sep26_du" "dec4_du" {
     local b_shr_a_`placebo_id'  = _b[ganador]
     local se_shr_a_`placebo_id' = _se[ganador]
 
+    /*--------------------------------------------------------------------------
+      STEP 5c: BCRA outcomes (per placebo)
+
+      Mirrors the §5.2 main analysis (paper_bcra_combined_age.do): 7 ITT
+      regressions with age control over the placebo sub-sample.
+
+      All-entities sample: Total Debt, Slow Payer, Banked
+      Excl.-Hipotecario sample: Q1-Q4 Cost
+    --------------------------------------------------------------------------*/
+    di as text _n "=== STEP 5c [`placebo_id']: BCRA outcomes ===" _n
+
+    * --- Person list for this placebo ---
+    preserve
+        use "$temp/_plac_`placebo_id'_xsec.dta", clear
+        keep id_anon
+        duplicates drop
+        save "$temp/_plac_`placebo_id'_pers_bcra.dta", replace
+    restore
+
+    * --- All-entities pass: total_deuda, moroso_ever, active_bcra ---
+    use id_anon entidad periodo situacion monto_deuda using "$data/Data_BCRA.dta", clear
+    merge m:1 id_anon using "$temp/_plac_`placebo_id'_pers_bcra.dta", keep(match) nogenerate
+
+    * Person-level moroso_ever (max situacion>1 ever)
+    preserve
+        collapse (max) _max_situ = situacion, by(id_anon)
+        gen byte moroso_ever = (_max_situ > 1) if !missing(_max_situ)
+        keep id_anon moroso_ever
+        save "$temp/_plac_`placebo_id'_moroso.dta", replace
+    restore
+
+    * Collapse to person-month: total_deuda
+    collapse (sum) total_deuda = monto_deuda, by(id_anon periodo)
+
+    gen int py = floor(periodo / 100)
+    gen int pm = mod(periodo, 100)
+    gen periodo_month = ym(py, pm)
+    format periodo_month %tm
+    drop py pm
+
+    * Last period per person
+    quietly sum periodo_month
+    local max_month = r(max)
+    bys id_anon (periodo_month): keep if _n == _N
+
+    * active_bcra = within last 3 months of panel
+    gen byte active_bcra = (periodo_month >= `max_month' - 2)
+
+    * Total Debt: zero if last observed period < Nov 2025
+    replace total_deuda = 0 if periodo_month < ym(2025, 11)
+
+    * Merge moroso_ever
+    merge 1:1 id_anon using "$temp/_plac_`placebo_id'_moroso.dta", keep(master match) nogenerate
+    replace moroso_ever = 0 if missing(moroso_ever)
+
+    keep id_anon total_deuda moroso_ever active_bcra
+    save "$temp/_plac_`placebo_id'_bcra_all.dta", replace
+    erase "$temp/_plac_`placebo_id'_moroso.dta"
+
+    * --- Excl.-Hipotecario pass: Q1-Q4 Cost dummies (last-period semantics) ---
+    use id_anon entidad periodo using "$data/Data_BCRA.dta", clear
+    merge m:1 id_anon using "$temp/_plac_`placebo_id'_pers_bcra.dta", keep(match) nogenerate
+
+    capture confirm string variable entidad
+    if _rc == 0 {
+        gen entidad_str = upper(strtrim(entidad))
+    }
+    else {
+        decode entidad, gen(entidad_str)
+        replace entidad_str = upper(strtrim(entidad_str))
+    }
+    replace entidad_str = "BANCO DE GALICIA Y BUENOS AIRES S.A." if entidad_str == "BANCO GGAL SA"
+
+    drop if strpos(entidad_str, "BANCO HIPOTECARIO S.A.") > 0
+
+    merge m:1 entidad_str using "$temp/_plac_q_flags_entity.dta", keep(master match) nogenerate
+    foreach v in is_q1 is_q2 is_q3 is_q4 {
+        replace `v' = 0 if missing(`v')
+    }
+
+    collapse (max) in_q1_costo=is_q1 in_q2_costo=is_q2 in_q3_costo=is_q3 in_q4_costo=is_q4, ///
+        by(id_anon periodo)
+
+    gen int py = floor(periodo / 100)
+    gen int pm = mod(periodo, 100)
+    gen periodo_month = ym(py, pm)
+    format periodo_month %tm
+    drop py pm
+    bys id_anon (periodo_month): keep if _n == _N
+
+    keep id_anon in_q1_costo in_q2_costo in_q3_costo in_q4_costo
+    save "$temp/_plac_`placebo_id'_bcra_qcost.dta", replace
+    erase "$temp/_plac_`placebo_id'_pers_bcra.dta"
+
+    * --- Join BCRA outcomes to xsec, run ITT regressions ---
+    use "$temp/_plac_`placebo_id'_xsec.dta", clear
+    merge m:1 id_anon using "$temp/_plac_`placebo_id'_bcra_all.dta", keep(master match) nogenerate
+    foreach v in total_deuda moroso_ever active_bcra {
+        replace `v' = 0 if missing(`v')
+    }
+    merge m:1 id_anon using "$temp/_plac_`placebo_id'_bcra_qcost.dta", keep(master match) nogenerate
+    foreach v in in_q1_costo in_q2_costo in_q3_costo in_q4_costo {
+        replace `v' = 0 if missing(`v')
+    }
+
+    * 7 ITT regressions × 3 specs (no ctl, age, full). Age spec drives the
+    * tables; the other two are saved as locals for the sensitivity display.
+    local bcra_outcomes "total_deuda moroso_ever active_bcra in_q1_costo in_q2_costo in_q3_costo in_q4_costo"
+    local j = 0
+    foreach v of local bcra_outcomes {
+        local ++j
+        quietly sum `v' if ganador == 0
+        local bcra_cm`j'_`placebo_id' = r(mean)
+
+        * --- age only (PRIMARY, used in .tex tables) ---
+        quietly reghdfe `v' ganador edad, absorb(sorteo_fe) cluster(id_anon)
+        local bcra_b`j'_`placebo_id'  = _b[ganador]
+        local bcra_se`j'_`placebo_id' = _se[ganador]
+        local bcra_n`j'_`placebo_id'  = e(N)
+
+        * --- no controls (sensitivity) ---
+        quietly reghdfe `v' ganador, absorb(sorteo_fe) cluster(id_anon)
+        local bcra_bn`j'_`placebo_id'  = _b[ganador]
+        local bcra_sen`j'_`placebo_id' = _se[ganador]
+        local bcra_nn`j'_`placebo_id'  = e(N)
+
+        * --- full controls (sensitivity) ---
+        quietly reghdfe `v' ganador edad pre_employed pre_wage mujer, absorb(sorteo_fe) cluster(id_anon)
+        local bcra_bf`j'_`placebo_id'  = _b[ganador]
+        local bcra_sef`j'_`placebo_id' = _se[ganador]
+        local bcra_nf`j'_`placebo_id'  = e(N)
+    }
+
+    * --- Display 3-spec results to log ---
+    di as text _n "  === 3-spec BCRA ITT for `placebo_id' ==="
+    di as text "  PARSE: outcome | b_noctl se_noctl | b_age se_age | b_full se_full"
+    forvalues j = 1/7 {
+        local oname : word `j' of `bcra_outcomes'
+        di as text "  PARSE: " "`oname' | " ///
+            `bcra_bn`j'_`placebo_id'' " " `bcra_sen`j'_`placebo_id'' " | " ///
+            `bcra_b`j'_`placebo_id''  " " `bcra_se`j'_`placebo_id''  " | " ///
+            `bcra_bf`j'_`placebo_id'' " " `bcra_sef`j'_`placebo_id''
+    }
+
+    * --- Format helpers + significance stars ---
+    forvalues j = 1/7 {
+        local t = abs(`bcra_b`j'_`placebo_id''/`bcra_se`j'_`placebo_id'')
+        if      `t' > 2.576 local bstar`j' "\sym{***}"
+        else if `t' > 1.960 local bstar`j' "\sym{**}"
+        else if `t' > 1.645 local bstar`j' "\sym{*}"
+        else                local bstar`j' ""
+    }
+    * Total Debt: large nominal, %9.1fc. Others: proportions.
+    local bf1  : display %9.1fc `bcra_b1_`placebo_id''
+    local bsef1: display %9.1fc `bcra_se1_`placebo_id''
+    local bcmf1: display %9.1fc `bcra_cm1_`placebo_id''
+    forvalues j = 2/7 {
+        local bf`j'  : display %9.4f `bcra_b`j'_`placebo_id''
+        local bsef`j': display %9.4f `bcra_se`j'_`placebo_id''
+        local bcmf`j': display %6.4f `bcra_cm`j'_`placebo_id''
+    }
+    local bnf : display %12.0fc `bcra_n1_`placebo_id''
+
+    * --- Per-placebo BCRA table ---
+    capture file close fh
+    file open fh using "$tables/placebo_bcra`out_sfx'.tex", write replace
+
+    file write fh "\begin{table}[H]\centering" _n
+    file write fh "\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}" _n
+    file write fh "\caption{BCRA Outcomes (ITT) --- `caption_id'}" _n
+    file write fh "\label{tab:placebo_bcra`out_sfx'}" _n
+    file write fh "\scriptsize" _n
+    file write fh "\setlength{\tabcolsep}{0pt}" _n
+    file write fh "\begin{tabular}{@{}l*{7}{>{\centering\arraybackslash}p{0.108\textwidth}}@{}}" _n
+    file write fh "\hline\hline" _n
+    file write fh " & Total Debt & Slow Payer & Banked & Q1 Cost & Q2 Cost & Q3 Cost & Q4 Cost \\" _n
+    file write fh " & (1) & (2) & (3) & (4) & (5) & (6) & (7) \\" _n
+    file write fh "\hline" _n
+    file write fh "Winner & `bf1'`bstar1' & `bf2'`bstar2' & `bf3'`bstar3' & `bf4'`bstar4' & `bf5'`bstar5' & `bf6'`bstar6' & `bf7'`bstar7' \\" _n
+    file write fh "       & (`bsef1') & (`bsef2') & (`bsef3') & (`bsef4') & (`bsef5') & (`bsef6') & (`bsef7') \\" _n
+    file write fh "\hline" _n
+    file write fh "Control mean & `bcmf1' & `bcmf2' & `bcmf3' & `bcmf4' & `bcmf5' & `bcmf6' & `bcmf7' \\" _n
+    file write fh "Observations & `bnf' & `bnf' & `bnf' & `bnf' & `bnf' & `bnf' & `bnf' \\" _n
+    file write fh "\hline\hline" _n
+    file write fh "\end{tabular}" _n
+    file write fh "\par\smallskip" _n
+    file write fh "\begin{minipage}{0.98\textwidth}" _n
+    file write fh "\scriptsize" _n
+    file write fh "OLS (ITT, reduced form). Sample: `caption_id'. All specifications include age at lottery date as the sole covariate plus lottery FE. \emph{Total Debt}: sum of debt outstanding in nominal ARS across BCRA-registered entities at the last period the applicant is observed; set to zero if the last observed period is before November 2025. \emph{Slow Payer}: indicator equal to one if the applicant had BCRA situation code \(> 1\) (code 2/3/4/5) at any point in the panel; applicants with no BCRA record are coded as 0. \emph{Banked}: indicator for an active credit record at the end of the panel. \emph{Q-X Cost}: indicator equal to one if the applicant holds any debt at an entity whose median CFT lies in the X-th quartile of the cost distribution at the last BCRA period the applicant is observed; cutoffs as in the main analysis. Cost-quartile columns use the excl.-Hipotecario sample. SE clustered at person level (parentheses).\\" _n
+    file write fh "\sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)" _n
+    file write fh "\end{minipage}" _n
+    file write fh "\end{table}" _n
+    file close fh
+
+    di as text "  placebo_bcra`out_sfx'.tex saved"
+
+    cap erase "$temp/_plac_`placebo_id'_bcra_all.dta"
+    cap erase "$temp/_plac_`placebo_id'_bcra_qcost.dta"
+
+    /*--------------------------------------------------------------------------
+      STEP 5d: Fertility outcome (per placebo)
+
+      Mirrors paper_hijos_outcomes.do main spec on n_kids_post:
+        n_kids_post = n_kids_2024 - n_kids_at_sorteo
+        ITT specs: noctl / age / age + n_kids_pre  (primary)
+      Source: $temp/_plac_proc_kids_panel.dta (built once in STEP 1.6).
+
+      Caveat: all three placebos are 2023 sorteos, so n_kids_post is
+      observed over a single calendar year (2024 only).
+    --------------------------------------------------------------------------*/
+    di as text _n "=== STEP 5d [`placebo_id']: Fertility outcome ===" _n
+
+    use "$temp/_plac_`placebo_id'_xsec.dta", clear
+
+    * --- 1. n_kids_pre = n_kids at year = cohort_year - 1 ---
+    preserve
+        use "$temp/_plac_proc_kids_panel.dta", clear
+        rename year cohort_year_minus_1
+        rename n_kids n_kids_pre
+        tempfile _kids_pre
+        save `_kids_pre'
+    restore
+
+    gen int cohort_year_minus_1 = cohort_year - 1
+    merge m:1 cuil_num cohort_year_minus_1 using `_kids_pre', ///
+        keep(master match) nogenerate
+    replace n_kids_pre = 0 if missing(n_kids_pre)
+    drop cohort_year_minus_1
+
+    * --- 2. n_kids_at_sorteo = n_kids at year = cohort_year ---
+    preserve
+        use "$temp/_plac_proc_kids_panel.dta", clear
+        rename year cohort_year
+        rename n_kids n_kids_at_sorteo
+        tempfile _kids_at
+        save `_kids_at'
+    restore
+
+    merge m:1 cuil_num cohort_year using `_kids_at', ///
+        keep(master match) nogenerate
+    replace n_kids_at_sorteo = 0 if missing(n_kids_at_sorteo)
+
+    * --- 3. n_kids_2024 = n_kids at year = 2024 ---
+    preserve
+        use "$temp/_plac_proc_kids_panel.dta", clear
+        keep if year == 2024
+        keep cuil_num n_kids
+        rename n_kids n_kids_2024
+        tempfile _kids_24
+        save `_kids_24'
+    restore
+
+    merge m:1 cuil_num using `_kids_24', ///
+        keep(master match) nogenerate
+    replace n_kids_2024 = 0 if missing(n_kids_2024)
+
+    gen int n_kids_post = n_kids_2024 - n_kids_at_sorteo
+    gen byte had_kid_post = (n_kids_post > 0)
+
+    di as text "    Fertility descriptives [`placebo_id']:"
+    sum n_kids_pre n_kids_at_sorteo n_kids_2024 n_kids_post had_kid_post
+
+    * --- Run ITT for n_kids_post (3 specs) ---
+    * (1) no controls
+    reghdfe n_kids_post ganador, absorb(sorteo_fe) cluster(id_anon)
+    local hijos_b_n_`placebo_id'  = _b[ganador]
+    local hijos_se_n_`placebo_id' = _se[ganador]
+    local hijos_n_n_`placebo_id'  = e(N)
+
+    * (2) age
+    reghdfe n_kids_post ganador edad, absorb(sorteo_fe) cluster(id_anon)
+    local hijos_b_a_`placebo_id'  = _b[ganador]
+    local hijos_se_a_`placebo_id' = _se[ganador]
+    local hijos_n_a_`placebo_id'  = e(N)
+
+    * (3) age + n_kids_pre (PRIMARY, matches table_n_kids_after.tex)
+    reghdfe n_kids_post ganador edad n_kids_pre, absorb(sorteo_fe) cluster(id_anon)
+    local hijos_b_p_`placebo_id'  = _b[ganador]
+    local hijos_se_p_`placebo_id' = _se[ganador]
+    local hijos_n_p_`placebo_id'  = e(N)
+
+    * Control mean (ganador == 0)
+    quietly sum n_kids_post if ganador == 0
+    local hijos_cm_`placebo_id' = r(mean)
+
+    di as text "    n_kids_post ITT for `placebo_id':"
+    di as text "      noctl: b=" %9.4f `hijos_b_n_`placebo_id'' " se=" %9.4f `hijos_se_n_`placebo_id''
+    di as text "      age:   b=" %9.4f `hijos_b_a_`placebo_id'' " se=" %9.4f `hijos_se_a_`placebo_id''
+    di as text "      a+pre: b=" %9.4f `hijos_b_p_`placebo_id'' " se=" %9.4f `hijos_se_p_`placebo_id''
+    di as text "      cm:    " %9.4f `hijos_cm_`placebo_id''
+
+    * --- Per-placebo fertility table (1 outcome x 3 specs) ---
+    forvalues k = 1/3 {
+        if `k' == 1 {
+            local b_disp = `hijos_b_n_`placebo_id''
+            local se_disp = `hijos_se_n_`placebo_id''
+            local n_disp = `hijos_n_n_`placebo_id''
+        }
+        else if `k' == 2 {
+            local b_disp = `hijos_b_a_`placebo_id''
+            local se_disp = `hijos_se_a_`placebo_id''
+            local n_disp = `hijos_n_a_`placebo_id''
+        }
+        else {
+            local b_disp = `hijos_b_p_`placebo_id''
+            local se_disp = `hijos_se_p_`placebo_id''
+            local n_disp = `hijos_n_p_`placebo_id''
+        }
+        local b_f`k'  : display %9.4f `b_disp'
+        local se_f`k' : display %9.4f `se_disp'
+        local n_f`k'  : display %12.0fc `n_disp'
+        local t = abs(`b_disp'/`se_disp')
+        if      `t' > 2.576 local stars_`k' "\sym{***}"
+        else if `t' > 1.960 local stars_`k' "\sym{**}"
+        else if `t' > 1.645 local stars_`k' "\sym{*}"
+        else                local stars_`k' ""
+    }
+    local cm_f : display %6.4f `hijos_cm_`placebo_id''
+
+    capture file close fh
+    file open fh using "$tables/placebo_hijos`out_sfx'.tex", write replace
+
+    file write fh "\begin{table}[H]\centering" _n
+    file write fh "\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}" _n
+    file write fh "\caption{Fertility Outcome (ITT) --- `caption_id'}" _n
+    file write fh "\label{tab:placebo_hijos`out_sfx'}" _n
+    file write fh "\scriptsize" _n
+    file write fh "\setlength{\tabcolsep}{0pt}" _n
+    file write fh "\begin{tabular}{@{}l*{3}{>{\centering\arraybackslash}p{0.20\textwidth}}@{}}" _n
+    file write fh "\hline\hline" _n
+    file write fh " & \multicolumn{3}{c}{\# Kids After} \\" _n
+    file write fh "\cline{2-4}" _n
+    file write fh " & (1) & (2) & (3) \\" _n
+    file write fh "\hline" _n
+    file write fh "Winner & `b_f1'`stars_1' & `b_f2'`stars_2' & `b_f3'`stars_3' \\" _n
+    file write fh "       & (`se_f1') & (`se_f2') & (`se_f3') \\" _n
+    file write fh "\hline" _n
+    file write fh "Control mean & \multicolumn{3}{c}{`cm_f'} \\" _n
+    file write fh "Observations & `=strtrim("`n_f1'")' & `=strtrim("`n_f2'")' & `=strtrim("`n_f3'")' \\" _n
+    file write fh "Controls for age &  & \checkmark & \checkmark \\" _n
+    file write fh "Pre-lottery \# children &  &  & \checkmark \\" _n
+    file write fh "\hline\hline" _n
+    file write fh "\end{tabular}" _n
+    file write fh "\par\smallskip" _n
+    file write fh "\begin{minipage}{0.95\textwidth}" _n
+    file write fh "\scriptsize" _n
+    file write fh "OLS (ITT, reduced form). Sample: `caption_id'. Outcome: number of children born strictly after the lottery year (\(n\_kids\_post = n\_kids\_2024 - n\_kids\_at\_sorteo\)), computed from the civil-registry of births aggregated to a CUIL \(\times\) calendar-year cumulative-children panel. Because all three placebos are 2023 sorteos, the outcome is observed over a single calendar year (2024). Lottery FE absorbed; SE clustered at person level (parentheses).\\" _n
+    file write fh "\sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)" _n
+    file write fh "\end{minipage}" _n
+    file write fh "\end{table}" _n
+    file close fh
+
+    di as text "  placebo_hijos`out_sfx'.tex saved"
+
     /* Per-placebo cleanup */
     cap erase "$temp/_plac_`placebo_id'_sorteo.dta"
     cap erase "$temp/_plac_`placebo_id'_sipa.dta"
@@ -893,10 +1346,199 @@ di as text "  placebo_itt_combined.tex saved"
 
 
 /*==============================================================================
+  STEP 7: COMBINED CROSS-PLACEBO BCRA TABLE
+==============================================================================*/
+
+di as text _n(2) "=== STEP 7: Combined BCRA cross-placebo table ===" _n
+
+capture file close fh
+file open fh using "$tables/placebo_bcra_combined.tex", write replace
+
+file write fh "\begin{table}[H]\centering" _n
+file write fh "\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}" _n
+file write fh "\caption{BCRA Outcomes (ITT): Comparison Across Three Lotteries}" _n
+file write fh "\label{tab:placebo_bcra_combined}" _n
+file write fh "\scriptsize" _n
+file write fh "\setlength{\tabcolsep}{0pt}" _n
+file write fh "\begin{tabular*}{0.95\textwidth}{@{\extracolsep{\fill}}l*{6}{c}@{}}" _n
+file write fh "\hline\hline" _n
+file write fh " & \multicolumn{2}{c}{Nov 23 (placebo)} & \multicolumn{2}{c}{Sep 26} & \multicolumn{2}{c}{Dec 4} \\" _n
+file write fh "\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}" _n
+file write fh " & (1) & (2) & (3) & (4) & (5) & (6) \\" _n
+file write fh "\hline" _n
+
+local outc_label_1 "Total Debt"
+local outc_label_2 "Slow Payer"
+local outc_label_3 "Banked"
+
+local plist "nov23 sep26_du dec4_du"
+
+* --- Coefficient + SE rows (3 outcomes, each shown in 2 specs: noctl + age) ---
+forvalues j = 1/3 {
+    if `j' == 1 {
+        local fmt_b  "%9.1fc"
+        local fmt_se "%9.1fc"
+    }
+    else {
+        local fmt_b  "%9.4f"
+        local fmt_se "%9.4f"
+    }
+
+    * coefficient row
+    file write fh "`outc_label_`j''"
+    foreach p of local plist {
+        * spec 1: no controls
+        local bv  : display `fmt_b' `bcra_bn`j'_`p''
+        local t   = abs(`bcra_bn`j'_`p''/`bcra_sen`j'_`p'')
+        if      `t' > 2.576 local s "\sym{***}"
+        else if `t' > 1.960 local s "\sym{**}"
+        else if `t' > 1.645 local s "\sym{*}"
+        else                local s ""
+        file write fh " & `bv'`s'"
+
+        * spec 2: age only
+        local bv  : display `fmt_b' `bcra_b`j'_`p''
+        local t   = abs(`bcra_b`j'_`p''/`bcra_se`j'_`p'')
+        if      `t' > 2.576 local s "\sym{***}"
+        else if `t' > 1.960 local s "\sym{**}"
+        else if `t' > 1.645 local s "\sym{*}"
+        else                local s ""
+        file write fh " & `bv'`s'"
+    }
+    file write fh " \\" _n
+
+    * SE row
+    file write fh "    "
+    foreach p of local plist {
+        local sev : display `fmt_se' `bcra_sen`j'_`p''
+        file write fh " & (`sev')"
+        local sev : display `fmt_se' `bcra_se`j'_`p''
+        file write fh " & (`sev')"
+    }
+    file write fh " \\" _n
+    if `j' < 3 file write fh "[0.3em]" _n
+}
+
+file write fh "\hline" _n
+
+* --- Control means (one row per outcome, value spans both specs) ---
+forvalues j = 1/3 {
+    if `j' == 1 local fmt_cm "%9.1fc"
+    else        local fmt_cm "%6.4f"
+    file write fh "Control mean (`outc_label_`j'')"
+    foreach p of local plist {
+        local cmv : display `fmt_cm' `bcra_cm`j'_`p''
+        file write fh " & \multicolumn{2}{c}{`cmv'}"
+    }
+    file write fh " \\" _n
+}
+
+* --- Observations ---
+file write fh "Observations"
+foreach p of local plist {
+    local nv : display %12.0fc `bcra_n1_`p''
+    file write fh " & \multicolumn{2}{c}{`=strtrim("`nv'")'}"
+}
+file write fh " \\" _n
+
+* --- Controls-as-column row ---
+file write fh "Controls for age & & \checkmark & & \checkmark & & \checkmark \\" _n
+
+file write fh "\hline\hline" _n
+file write fh "\end{tabular*}" _n
+file write fh "\par\smallskip" _n
+file write fh "\begin{minipage}{0.95\textwidth}" _n
+file write fh "\scriptsize" _n
+file write fh "OLS (ITT, reduced form). Three contemporaneous 2023 lotteries: Nov 23 (any type, credits never disbursed); Sep 26 (DU only, credits disbursed); Dec 4 (DU only, credits disbursed). Lottery FE absorbed; SE clustered at person level (parentheses). \emph{Total Debt}: sum of debt outstanding in nominal ARS across BCRA-registered entities at the last period the applicant is observed (zero if before November 2025). \emph{Slow Payer}: indicator equal to one if the applicant had BCRA situation code \(> 1\) (code 2/3/4/5) at any point in the panel; applicants with no BCRA record are coded as 0. \emph{Banked}: indicator for an active credit record at the end of the panel.\\" _n
+file write fh "\sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)" _n
+file write fh "\end{minipage}" _n
+file write fh "\end{table}" _n
+file close fh
+
+di as text "  placebo_bcra_combined.tex saved"
+
+
+/*==============================================================================
+  STEP 8: COMBINED CROSS-PLACEBO FERTILITY TABLE
+==============================================================================*/
+
+di as text _n(2) "=== STEP 8: Combined fertility cross-placebo table ===" _n
+
+local plist "nov23 sep26_du dec4_du"
+
+capture file close fh
+file open fh using "$tables/placebo_hijos_combined.tex", write replace
+
+file write fh "\begin{table}[H]\centering" _n
+file write fh "\def\sym#1{\ifmmode^{#1}\else\(^{#1}\)\fi}" _n
+file write fh "\caption{Fertility Outcome (ITT): Comparison Across Three Lotteries}" _n
+file write fh "\label{tab:placebo_hijos_combined}" _n
+file write fh "\scriptsize" _n
+file write fh "\setlength{\tabcolsep}{0pt}" _n
+file write fh "\begin{tabular}{@{}l*{3}{>{\centering\arraybackslash}p{0.22\textwidth}}@{}}" _n
+file write fh "\hline\hline" _n
+file write fh " & Nov 23 (placebo) & Sep 26 & Dec 4 \\" _n
+file write fh " & (1) & (2) & (3) \\" _n
+file write fh "\hline" _n
+
+* Winner row (primary spec: age + n_kids_pre)
+file write fh "Winner"
+foreach p of local plist {
+    local b : display %9.4f `hijos_b_p_`p''
+    local t = abs(`hijos_b_p_`p''/`hijos_se_p_`p'')
+    if      `t' > 2.576 local s "\sym{***}"
+    else if `t' > 1.960 local s "\sym{**}"
+    else if `t' > 1.645 local s "\sym{*}"
+    else                local s ""
+    file write fh " & `b'`s'"
+}
+file write fh " \\" _n
+file write fh "    "
+foreach p of local plist {
+    local se : display %9.4f `hijos_se_p_`p''
+    file write fh " & (`se')"
+}
+file write fh " \\" _n
+
+file write fh "\hline" _n
+
+* Control mean
+file write fh "Control mean"
+foreach p of local plist {
+    local cm : display %6.4f `hijos_cm_`p''
+    file write fh " & `cm'"
+}
+file write fh " \\" _n
+
+* Observations
+file write fh "Observations"
+foreach p of local plist {
+    local n : display %12.0fc `hijos_n_p_`p''
+    file write fh " & `=strtrim("`n'")'"
+}
+file write fh " \\" _n
+
+file write fh "\hline\hline" _n
+file write fh "\end{tabular}" _n
+file write fh "\par\smallskip" _n
+file write fh "\begin{minipage}{0.95\textwidth}" _n
+file write fh "\scriptsize" _n
+file write fh "OLS (ITT, reduced form). Three contemporaneous 2023 lotteries: Nov 23 (any type, credits never disbursed); Sep 26 (DU only, credits disbursed); Dec 4 (DU only, credits disbursed). Outcome: number of children born strictly after the lottery year (\(n\_kids\_post = n\_kids\_2024 - n\_kids\_at\_sorteo\)), computed from the civil-registry of births. Because all three placebos are 2023 sorteos, the outcome is observed over a single calendar year (2024). All specifications control for age at lottery and pre-lottery \# children, plus lottery FE. SE clustered at person level (parentheses).\\" _n
+file write fh "\sym{*} \(p<0.10\), \sym{**} \(p<0.05\), \sym{***} \(p<0.01\)" _n
+file write fh "\end{minipage}" _n
+file write fh "\end{table}" _n
+file close fh
+
+di as text "  placebo_hijos_combined.tex saved"
+
+
+/*==============================================================================
   CLEANUP
 ==============================================================================*/
 
 cap erase "$temp/_plac_deflator.dta"
+cap erase "$temp/_plac_q_flags_entity.dta"
+cap erase "$temp/_plac_proc_kids_panel.dta"
 
 di as text _n(3) "============================================================"
 di as text       "  PLACEBO + COMPARISON RUN — COMPLETE"
@@ -906,17 +1548,25 @@ di as text _n "  Nov 23 (placebo, no credits disbursed):"
 di as text "    placebo_first_stage.tex"
 di as text "    placebo_main.tex"
 di as text "    placebo_main_full.tex"
+di as text "    placebo_bcra.tex"
+di as text "    placebo_hijos.tex"
 di as text _n "  Sep 26 (DU, comparison):"
 di as text "    placebo_first_stage_sep26_du.tex"
 di as text "    placebo_main_sep26_du.tex"
 di as text "    placebo_main_full_sep26_du.tex"
+di as text "    placebo_bcra_sep26_du.tex"
+di as text "    placebo_hijos_sep26_du.tex"
 di as text _n "  Dec 4 (DU, comparison):"
 di as text "    placebo_first_stage_dec4_du.tex"
 di as text "    placebo_main_dec4_du.tex"
 di as text "    placebo_main_full_dec4_du.tex"
+di as text "    placebo_bcra_dec4_du.tex"
+di as text "    placebo_hijos_dec4_du.tex"
 di as text _n "  Combined (robustness section):"
 di as text "    placebo_fs_combined.tex     — 3 first stages side by side"
 di as text "    placebo_itt_combined.tex    — 3 ITTs × 2 outcomes × 2 specs"
+di as text "    placebo_bcra_combined.tex   — 3 BCRA ITTs × 7 outcomes"
+di as text "    placebo_hijos_combined.tex  — 3 fertility ITTs (n_kids_post)"
 di as text _n "Interpretation:"
 di as text "  Nov 23: all coefficients ≈ 0 (exclusion restriction supported)."
 di as text "  Sep 26 / Dec 4: ITT should match main paper magnitudes,"
