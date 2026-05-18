@@ -152,6 +152,14 @@ bys sorteo_fe: egen _winrate = mean(ganador)
 drop if _winrate == 0 | _winrate == 1
 drop _winrate
 
+* --- Drop sorteos with zero receptors ----------------------------------------
+*     Cells where no lottery winner ended up taking the loan provide zero
+*     treatment variation. Excluding them matches the analysis sample used
+*     in the labor and BCRA tables (see paper_labor_outcomes.do).
+bys sorteo_fe: egen _n_rec = total(receptor)
+drop if _n_rec == 0
+drop _n_rec
+
 * --- Time variables ---------------------------------------------------------
 gen sorteo_month = mofd(fecha_sorteo)
 format sorteo_month %tm
@@ -540,18 +548,18 @@ file write f "\hline" _n
 
 * Coefficient row (math-mode minus for negative wage coefficient)
 if `b_pre_wage_neg' {
-    file write f "Lottery Winner      &  `b_age_s'`star_age'  &  `b_female_s'`star_female'  &  `b_pre_employed_s'`star_pre_employed'  &  \$-\$`b_pre_wage_mag'`star_pre_wage'  &  `bC_n_kids_pre_s'`starC_n_kids_pre'  \\" _n
+    file write f "Lottery Winner      &  `b_edad_s'`star_edad'  &  `b_mujer_s'`star_mujer'  &  `b_pre_employed_s'`star_pre_employed'  &  \$-\$`b_pre_wage_mag'`star_pre_wage'  &  `bC_n_kids_pre_s'`starC_n_kids_pre'  \\" _n
 }
 else {
-    file write f "Lottery Winner      &  `b_age_s'`star_age'  &  `b_female_s'`star_female'  &  `b_pre_employed_s'`star_pre_employed'  &  `b_pre_wage_mag'`star_pre_wage'  &  `bC_n_kids_pre_s'`starC_n_kids_pre'  \\" _n
+    file write f "Lottery Winner      &  `b_edad_s'`star_edad'  &  `b_mujer_s'`star_mujer'  &  `b_pre_employed_s'`star_pre_employed'  &  `b_pre_wage_mag'`star_pre_wage'  &  `bC_n_kids_pre_s'`starC_n_kids_pre'  \\" _n
 }
 
 * SE row (parentheses)
-file write f "                    &  (`se_age_s')         &  (`se_female_s')          &  (`se_pre_employed_s')          &  (`se_pre_wage_s')            &  (`seC_n_kids_pre_s')  \\" _n
+file write f "                    &  (`se_edad_s')         &  (`se_mujer_s')          &  (`se_pre_employed_s')          &  (`se_pre_wage_s')            &  (`seC_n_kids_pre_s')  \\" _n
 
 file write f "\hline" _n
-file write f "Control mean        &  `cmean_age_s'         &  `cmean_female_s'          &  `cmean_pre_employed_s'          &  `cmean_pre_wage_s'          &  `cmeanC_n_kids_pre_s'  \\" _n
-file write f "Control SD          &  `csd_age_s'         &  `csd_female_s'          &  `csd_pre_employed_s'          &  `csd_pre_wage_s'          &  `csdC_n_kids_pre_s'  \\" _n
+file write f "Control mean        &  `cmean_edad_s'         &  `cmean_mujer_s'          &  `cmean_pre_employed_s'          &  `cmean_pre_wage_s'          &  `cmeanC_n_kids_pre_s'  \\" _n
+file write f "Control SD          &  `csd_edad_s'         &  `csd_mujer_s'          &  `csd_pre_employed_s'          &  `csd_pre_wage_s'          &  `csdC_n_kids_pre_s'  \\" _n
 
 * Std diff row — handle each cell's sign individually (col 5 uses conditional std diff)
 local std_row "Std.\ difference   "
@@ -572,7 +580,7 @@ else {
 local std_row "`std_row'  \\"
 file write f "`std_row'" _n
 
-file write f "Observations        &  `n_age_s'      &  `n_female_s'        &  `n_pre_employed_s'      &  `n_pre_wage_s'         &  `nC_n_kids_pre_s'  \\" _n
+file write f "Observations        &  `n_edad_s'      &  `n_mujer_s'        &  `n_pre_employed_s'      &  `n_pre_wage_s'         &  `nC_n_kids_pre_s'  \\" _n
 file write f "Controls for age    &  --  &  --  &  --  &  --  &  \checkmark  \\" _n
 
 file write f "\hline\hline" _n

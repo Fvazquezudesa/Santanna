@@ -156,6 +156,18 @@ count if _winrate == 0 | _winrate == 1
 drop if _winrate == 0 | _winrate == 1
 drop _winrate
 
+* --- DROP SORTEOS WITH ZERO RECEPTORS -----------------------------------------
+*     Cells where no lottery winner ended up taking the loan provide zero
+*     treatment variation (receptor == 0 for everyone). They are also
+*     "implicit placebo" sub-cells (the actual placebo is the Nov 23 2023
+*     SAGOL II lottery, where credits were never disbursed; here we extend
+*     the same logic to all cells where compliance was de facto zero).
+bys sorteo_fe: egen _n_rec = total(receptor)
+di as text _n "Dropping sorteos with zero receptors:"
+count if _n_rec == 0
+drop if _n_rec == 0
+drop _n_rec
+
 * --- Time variables -----------------------------------------------------------
 gen sorteo_month = mofd(fecha_sorteo)
 format sorteo_month %tm
